@@ -1,0 +1,25 @@
+### PYTHON & ENVIRONMENT
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+
+### DATA & OUTPUTS (The 2.6GB+ Culprits)
+# Ignore all CSV and PNG files because these are your MC outputs/plots
+*.csv
+*.png
+
+# Specifically ignore common output subfolders across your modules
+**/raw_data/
+**/raw_data_element/
+
+
+### SYSTEM FILES
+.DS_Store
+Thumbs.db
+
+### POSITRON / JUPYTER
+.ipynb_checkpoints/
+.positron/
