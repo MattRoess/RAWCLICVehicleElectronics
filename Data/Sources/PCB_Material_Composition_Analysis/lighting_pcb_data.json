@@ -1,0 +1,14 @@
+{
+  "Matrix Lighting & Illumination Systems": {
+    "Cu": { "mg_per_cm2_min": 20.0, "mg_per_cm2_typical": 30.0, "mg_per_cm2_max": 45.0, "weight_percent_min": 55.0, "weight_percent_typical": 65.0, "weight_percent_max": 75.0 },
+    "Ag": { "mg_per_cm2_min": 0.08, "mg_per_cm2_typical": 0.25, "mg_per_cm2_max": 0.5, "weight_percent_min": 0.2, "weight_percent_typical": 0.4, "weight_percent_max": 0.8 },
+    "Au": { "mg_per_cm2_min": 0.02, "mg_per_cm2_typical": 0.04, "mg_per_cm2_max": 0.06, "weight_percent_min": 0.04, "weight_percent_typical": 0.06, "weight_percent_max": 0.1 },
+    "Sn": { "mg_per_cm2_min": 1.2, "mg_per_cm2_typical": 2.8, "mg_per_cm2_max": 4.5, "weight_percent_min": 3.5, "weight_percent_typical": 4.5, "weight_percent_max": 5.5 },
+    "Pb": { "mg_per_cm2_min": 0.0, "mg_per_cm2_typical": 0.1, "mg_per_cm2_max": 0.3, "weight_percent_min": 0.0, "weight_percent_typical": 0.2, "weight_percent_max": 0.5 },
+    "Ni": { "mg_per_cm2_min": 0.3, "mg_per_cm2_typical": 0.6, "mg_per_cm2_max": 1.1, "weight_percent_min": 0.8, "weight_percent_typical": 1.2, "weight_percent_max": 2.0 },
+    "Pd": { "mg_per_cm2_min": 0.008, "mg_per_cm2_typical": 0.015, "mg_per_cm2_max": 0.025, "weight_percent_min": 0.02, "weight_percent_typical": 0.03, "weight_percent_max": 0.06 },
+    "Al": { "mg_per_cm2_min": 5.0, "mg_per_cm2_typical": 10.0, "mg_per_cm2_max": 18.0, "weight_percent_min": 10.0, "weight_percent_typical": 15.0, "weight_percent_max": 20.0 },
+    "Zn": { "mg_per_cm2_min": 0.15, "mg_per_cm2_typical": 0.25, "mg_per_cm2_max": 0.55, "weight_percent_min": 0.3, "weight_percent_typical": 0.5, "weight_percent_max": 0.9 },
+    "Fe": { "mg_per_cm2_min": 1.5, "mg_per_cm2_typical": 3.5, "mg_per_cm2_max": 5.5, "weight_percent_min": 3.5, "weight_percent_typical": 5.5, "weight_percent_max": 8.5 }
+  }
+}
