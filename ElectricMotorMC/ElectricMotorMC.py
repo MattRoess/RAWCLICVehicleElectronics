@@ -77,7 +77,7 @@ MOTOR_CONFIGS = {
         "gb_type":      "dc_plastic",
         "mass_row":     "MediumDCMotors_plastic",
         "mat_sheet":    "MediumDCMotors_plastic",
-        "housing_type": "MediumDC",   # gearbox type irrelevant for motor housing
+        "housing_type": "MediumDC",
     },
 }
 
@@ -98,7 +98,6 @@ COLORS = {
 SEG_COLORS        = {"AB": "#2196F3", "CD": "#FF9800", "EF": "#4CAF50"}
 GRAND_TOTAL_COLOR = "#2222"
 
-# Row labels in the material sheets that are aggregate totals — must be excluded
 _TOTAL_COMPONENTS = {"total_motor", "total_gearbox"}
 
 
@@ -126,12 +125,20 @@ def uniform(rng: np.random.Generator, low: float, high: float, n: int) -> np.nda
 def triangular_safe(
     rng: np.random.Generator, lo: float, mode: float, hi: float, n: int
 ) -> np.ndarray:
-    """Triangular draw with guards for degenerate inputs."""
     lo, hi = min(lo, hi), max(lo, hi)
     mode   = np.clip(mode, lo, hi)
     if lo == hi:
         return np.full(n, lo, dtype=float)
     return rng.triangular(lo, mode, hi, size=n)
+
+
+def kde_mode(x: np.ndarray, grid_points: int = 1024) -> float:
+    """Estimate the mode of a sample via KDE peak."""
+    if np.std(x) < 1e-12:
+        return float(x[0])
+    kde  = gaussian_kde(x)
+    grid = np.linspace(x.min(), x.max(), grid_points)
+    return float(grid[np.argmax(kde(grid))])
 
 
 def export_histogram_csv(data: np.ndarray, path: Path, bins: int = HIST_BINS) -> None:
@@ -170,14 +177,6 @@ def aggregate_duplicate_materials(
     material_mass_kg: np.ndarray,
     ratios: np.ndarray,
 ) -> Tuple[List[str], np.ndarray, np.ndarray]:
-    """
-    Combine columns that share the same material name.
-
-    If the material sheet contains, e.g., two rows named "Steel" (from
-    different motor components), their sampled mass and ratio columns are
-    summed so that each unique material name appears only once.
-    Returns (unique_materials, aggregated_mass, aggregated_ratios).
-    """
     seen: Dict[str, int] = {}
     unique_mats: List[str] = []
     agg_mass_cols: List[np.ndarray] = []
@@ -217,16 +216,6 @@ def read_mass_sheet(xlsx: Path) -> pd.DataFrame:
 
 
 def read_material_sheet(xlsx: Path, sheet_name: str) -> pd.DataFrame:
-    """
-    Read a motor material sheet.
-
-    The sheet has columns: component, material, low, mode, high, notes
-    - 'component' is the row key (e.g. StatorCore, HousingFrame)
-    - 'material'  is the material name (e.g. ElectricalSteel, Aluminum_Steel)
-    - Rows where component is a total aggregate (Total_Motor, Total_Gearbox) are excluded.
-    - Rows where material is NaN are excluded (lubricants etc. with no named material).
-    - All three of low / mode / high are retained for triangular distribution sampling.
-    """
     df = pd.read_excel(xlsx, sheet_name=sheet_name)
     df.columns = [c.strip() for c in df.columns]
 
@@ -239,18 +228,13 @@ def read_material_sheet(xlsx: Path, sheet_name: str) -> pd.DataFrame:
     out = df[[comp_col, mat_col, low_col, mode_col, high_col]].copy()
     out.columns = ["component", "material", "low", "mode", "high"]
 
-    # Strip whitespace
     out["component"] = out["component"].astype(str).str.strip()
     out["material"]  = out["material"].astype(str).str.strip()
 
-    # Drop aggregate total rows
     out = out[~out["component"].str.lower().isin(_TOTAL_COMPONENTS)].copy()
-
-    # Drop rows with no named material (e.g. lubricants listed as nan)
     out = out[out["material"].str.lower() != "nan"].copy()
     out = out[out["material"].str.len() > 0].copy()
 
-    # Numeric conversion
     for c in ["low", "mode", "high"]:
         out[c] = pd.to_numeric(out[c], errors="coerce")
 
@@ -259,12 +243,6 @@ def read_material_sheet(xlsx: Path, sheet_name: str) -> pd.DataFrame:
 
 
 def read_housing_sheet(xlsx: Path) -> pd.DataFrame:
-    """
-    Read the Housing sheet.
-    Columns: Segment, MotorAl_min, MotorAl_max, MotorFe_min, MotorFe_max,
-             GearboxAl_min, GearboxAl_max, GearboxFe_min, GearboxFe_max, MotorType
-    The Housing sheet only has min/max (no mode), so uniform sampling is correct here.
-    """
     df = pd.read_excel(xlsx, sheet_name="Housing")
     df.columns = [c.strip() for c in df.columns]
     seg_col = _find_col(df, "Segment")
@@ -275,7 +253,7 @@ def read_housing_sheet(xlsx: Path) -> pd.DataFrame:
 
 
 # ────
-# HOUSING Al/Fe FRACTION SAMPLING  (uniform — Housing sheet has no mode)
+# HOUSING Al/Fe FRACTION SAMPLING
 # ────
 def sample_housing_fractions(
     df_housing: pd.DataFrame,
@@ -284,13 +262,6 @@ def sample_housing_fractions(
     rng: np.random.Generator,
     n: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Sample Aluminum and Steel fractions for the HousingFrame component.
-    Averages draws across the two segment rows (e.g. A and B for group AB),
-    then normalises so Al + Fe = 1.
-
-    The Housing sheet only has min/max — no mode — so uniform sampling is used.
-    """
     seg_col    = _find_col(df_housing, "Segment")
     mt_col     = _find_col(df_housing, "MotorType")
     al_min_col = _find_col(df_housing, "MotorAl_min")
@@ -317,7 +288,6 @@ def sample_housing_fractions(
         fe_lo = float(row[fe_min_col])
         fe_hi = float(row[fe_max_col])
 
-        # Guard against inverted min/max
         if al_lo > al_hi:
             al_lo, al_hi = al_hi, al_lo
         if fe_lo > fe_hi:
@@ -348,14 +318,6 @@ def sample_gearbox_housing_fractions(
     rng: np.random.Generator,
     n: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Sample Aluminum and Steel fractions for the Gearbox_Housing component.
-    Uses the GearboxAl and GearboxFe columns from the Housing sheet.
-    Averages draws across the two segment rows (e.g. A and B for group AB),
-    then normalises so Al + Fe = 1.
-
-    The Housing sheet only has min/max — no mode — so uniform sampling is used.
-    """
     seg_col    = _find_col(df_housing, "Segment")
     mt_col     = _find_col(df_housing, "MotorType")
     al_min_col = _find_col(df_housing, "GearboxAl_min")
@@ -382,7 +344,6 @@ def sample_gearbox_housing_fractions(
         fe_lo = float(row[fe_min_col])
         fe_hi = float(row[fe_max_col])
 
-        # Guard against inverted min/max
         if al_lo > al_hi:
             al_lo, al_hi = al_hi, al_lo
         if fe_lo > fe_hi:
@@ -416,7 +377,6 @@ def sample_motor_counts(
     rng: np.random.Generator,
     n: int,
 ) -> np.ndarray:
-    """Sum Uniform(low, high) draws from the two segment rows."""
     seg_col  = _find_col(df_num, "Segment")
     low_col  = _find_col(df_num, f"{count_col}_low")
     high_col = _find_col(df_num, f"{count_col}_high")
@@ -506,15 +466,6 @@ def sample_material_ratios(
     rng: np.random.Generator,
     n: int,
 ) -> Tuple[List[str], np.ndarray]:
-    """
-    Sample mass fractions for each material component using a triangular
-    distribution (low, mode, high) as defined in the motor material sheets.
-    Each material is sampled independently, then row-normalised so fractions sum to 1.
-
-    Note: the 'material' column here is the material name (e.g. ElectricalSteel),
-    NOT the component name (e.g. StatorCore).  The DataFrame passed in is the
-    output of read_material_sheet(), which already excludes total rows and NaN materials.
-    """
     materials = comp_df["material"].tolist()
     lo   = comp_df["low"].to_numpy(float)
     mode = comp_df["mode"].to_numpy(float)
@@ -530,7 +481,7 @@ def sample_material_ratios(
 
 
 # ────
-# HOUSING SPLIT — replace HousingFrame's Aluminum_Steel with separate entries
+# HOUSING SPLIT
 # ────
 def split_housing_in_materials(
     comp_df: pd.DataFrame,
@@ -539,29 +490,6 @@ def split_housing_in_materials(
     al_frac: np.ndarray,
     fe_frac: np.ndarray,
 ) -> Tuple[List[str], np.ndarray]:
-    """
-    Replace the HousingFrame component's 'Aluminum_Steel' entry in the materials
-    list with two separate entries: 'Aluminum' and 'Steel', weighted by the
-    housing fractions (al_frac, fe_frac) sampled from the Housing sheet.
-
-    Only the HousingFrame component is split.  Other components that may also
-    carry 'Aluminum_Steel' (e.g. Gearbox_Housing) are intentionally left intact.
-
-    Parameters
-    ----------
-    comp_df : DataFrame from read_material_sheet (has 'component' and 'material' columns).
-    materials : list of material names aligned with ratios columns.
-    ratios : (N_SAMPLES, n_materials) normalised mass-fraction array.
-    al_frac, fe_frac : (N_SAMPLES,) aluminum/steel fractions from sample_housing_fractions.
-
-    Returns
-    -------
-    new_materials : updated material list (one entry longer if split occurred).
-    new_ratios    : updated ratio array with matching columns.
-    """
-    # Find the HousingFrame row(s) with Aluminum_Steel in comp_df.
-    # comp_df index aligns 1:1 with the materials list (both from read_material_sheet
-    # which resets the index).
     hf_mask = (
         (comp_df["component"].str.lower() == "housingframe")
         & (comp_df["material"].str.lower() == "aluminum_steel")
@@ -569,18 +497,15 @@ def split_housing_in_materials(
     hf_indices = comp_df.index[hf_mask].tolist()
 
     if not hf_indices:
-        # No HousingFrame Aluminum_Steel found — nothing to split
         return materials, ratios
 
     hf_idx = hf_indices[0]
 
-    # Build new lists
     new_materials: List[str] = []
     new_cols: List[np.ndarray] = []
 
     for i, mat in enumerate(materials):
         if i == hf_idx:
-            # Split into Aluminum and Steel
             new_materials.append("Aluminum")
             new_cols.append(ratios[:, i] * al_frac)
             new_materials.append("Steel")
@@ -599,30 +524,6 @@ def split_gearbox_housing_in_materials(
     gb_al_frac: np.ndarray,
     gb_fe_frac: np.ndarray,
 ) -> Tuple[List[str], np.ndarray]:
-    """
-    Replace the remaining 'Aluminum_Steel' entry in the materials list
-    (expected to be from the Gearbox_Housing component) with two separate
-    entries: 'Aluminum' and 'Steel', weighted by the gearbox housing
-    fractions (gb_al_frac, gb_fe_frac) sampled from the Housing sheet's
-    GearboxAl / GearboxFe columns.
-
-    This function is called AFTER split_housing_in_materials has already
-    removed the HousingFrame's Aluminum_Steel entry, so the first remaining
-    'Aluminum_Steel' in the materials list belongs to Gearbox_Housing.
-
-    Parameters
-    ----------
-    materials : list of material names aligned with ratios columns.
-    ratios : (N_SAMPLES, n_materials) normalised mass-fraction array.
-    gb_al_frac, gb_fe_frac : (N_SAMPLES,) aluminum/steel fractions from
-                             sample_gearbox_housing_fractions.
-
-    Returns
-    -------
-    new_materials : updated material list.
-    new_ratios    : updated ratio array with matching columns.
-    """
-    # Find the first remaining Aluminum_Steel in the materials list
     gb_idx = None
     for i, mat in enumerate(materials):
         if mat.lower() == "aluminum_steel":
@@ -630,16 +531,13 @@ def split_gearbox_housing_in_materials(
             break
 
     if gb_idx is None:
-        # No Aluminum_Steel found — nothing to split
         return materials, ratios
 
-    # Build new lists
     new_materials: List[str] = []
     new_cols: List[np.ndarray] = []
 
     for i, mat in enumerate(materials):
         if i == gb_idx:
-            # Split into Aluminum and Steel
             new_materials.append("Aluminum")
             new_cols.append(ratios[:, i] * gb_al_frac)
             new_materials.append("Steel")
@@ -653,7 +551,7 @@ def split_gearbox_housing_in_materials(
 
 
 # ────
-# FIGURES — segment overview: 2 rows × 4 columns
+# FIGURES — segment overview
 # ────
 def save_distribution_plot(
     segment: str,
@@ -676,7 +574,7 @@ def save_distribution_plot(
             ax = fig.add_subplot(gs[row, col])
             ax.hist(data, bins=80, density=True, alpha=0.4, color=color, edgecolor="none")
             add_kde(ax, data, color)
-            for p, ls in [(0.05, "--"), (0.50, "-"), (0.95, "--")]:
+            for p, ls in [(0.025, "--"), (0.50, "-"), (0.975, "--")]:
                 ax.axvline(np.quantile(data, p), color="black", linestyle=ls, alpha=0.7)
             ax.axvline(np.mean(data), color="red", linestyle=":", linewidth=2)
             ax.set_title(f"{motor}\n({label})", fontsize=11, fontweight="bold")
@@ -688,7 +586,7 @@ def save_distribution_plot(
 
 
 # ────
-# FIGURES — grand total distributions (count & mass) per segment
+# FIGURES — grand total distributions per segment
 # ────
 def save_grand_total_distribution_plot(
     segment: str,
@@ -705,7 +603,7 @@ def save_grand_total_distribution_plot(
     ]:
         ax.hist(data, bins=100, density=True, alpha=0.4, color=color, edgecolor="none")
         add_kde(ax, data, color)
-        for p, ls in [(0.05, "--"), (0.50, "-"), (0.95, "--")]:
+        for p, ls in [(0.025, "--"), (0.50, "-"), (0.975, "--")]:
             ax.axvline(np.quantile(data, p), color="black", linestyle=ls, alpha=0.7)
         ax.axvline(np.mean(data), color="red", linestyle=":", linewidth=2)
         ax.set_title(label, fontsize=12, fontweight="bold")
@@ -723,11 +621,6 @@ def save_grand_total_distribution_plot(
 def save_grand_total_distribution_plots(
     grand_totals: Dict[str, Dict[str, np.ndarray]],
 ) -> None:
-    """
-    Two figures overlaying AB / CD / EF distributions for direct comparison:
-      - distribution_grandtotal_count_all_segments.png
-      - distribution_grandtotal_mass_all_segments.png
-    """
     for qty, label, unit, fname in [
         ("count", "Grand Total Count", "motors", "distribution_grandtotal_count_all_segments.png"),
         ("mass",  "Grand Total Mass",  "kg",     "distribution_grandtotal_mass_all_segments.png"),
@@ -739,7 +632,7 @@ def save_grand_total_distribution_plots(
             data = grand_totals[seg][qty]
             ax.hist(data, bins=100, density=True, alpha=0.25, color=color, edgecolor="none")
             add_kde(ax, data, color)
-            for p, ls in [(0.05, "--"), (0.95, "--")]:
+            for p, ls in [(0.025, "--"), (0.975, "--")]:
                 ax.axvline(np.quantile(data, p), color=color, linestyle=ls, alpha=0.6)
             ax.axvline(np.mean(data), color=color, linestyle=":", linewidth=2,
                     label=f"{seg}  μ={np.mean(data):.1f}")
@@ -821,7 +714,7 @@ def save_material_distribution_figure(
         x = data[:, idx]
         ax.hist(x, bins=80, density=True, alpha=0.35, color=base, edgecolor="none")
         add_kde(ax, x, base)
-        for p, ls in [(0.05, "--"), (0.50, "-"), (0.95, "--")]:
+        for p, ls in [(0.025, "--"), (0.50, "-"), (0.975, "--")]:
             ax.axvline(np.quantile(x, p), color="black", linestyle=ls, alpha=0.7)
         ax.axvline(np.mean(x), color="red", linestyle=":", linewidth=2)
         ax.set_title(mats[idx], fontsize=11, fontweight="bold")
@@ -868,7 +761,7 @@ def save_grand_total_material_figure(
         x = data[:, idx]
         ax.hist(x, bins=80, density=True, alpha=0.35, color=color, edgecolor="none")
         add_kde(ax, x, color)
-        for p, ls in [(0.05, "--"), (0.50, "-"), (0.95, "--")]:
+        for p, ls in [(0.025, "--"), (0.50, "-"), (0.975, "--")]:
             ax.axvline(np.quantile(x, p), color="black", linestyle=ls, alpha=0.7)
         ax.axvline(np.mean(x), color="red", linestyle=":", linewidth=2)
         ax.set_title(mats[idx], fontsize=11, fontweight="bold")
@@ -961,15 +854,16 @@ def _export_material_outputs(
             DIR_MAT_HIST / f"hist_materialmass_{seg_group}_{motor}_{sn}.csv",
         )
         mat_summary_rows.append({
-            "Segment":      seg_group,
-            "Motor":        motor,
-            "Material":     mat,
-            "Mean_mass_kg": float(np.mean(x)),
-            "Std_mass_kg":  float(np.std(x)),
-            "P05_mass_kg":  float(np.quantile(x, 0.05)),
-            "P50_mass_kg":  float(np.quantile(x, 0.50)),
-            "P95_mass_kg":  float(np.quantile(x, 0.95)),
-            "Mean_ratio":   float(np.mean(ratios[:, j])),
+            "Segment":       seg_group,
+            "Motor":         motor,
+            "Material":      mat,
+            "Mean_mass_kg":  float(np.mean(x)),
+            "Std_mass_kg":   float(np.std(x)),
+            "Mode_mass_kg":  float(kde_mode(x)),
+            "P025_mass_kg":  float(np.quantile(x, 0.025)),
+            "Median_mass_kg":   float(np.quantile(x, 0.50)),
+            "P975_mass_kg":  float(np.quantile(x, 0.975)),
+            "Mean_ratio":    float(np.mean(ratios[:, j])),
         })
 
 
@@ -987,7 +881,6 @@ def main() -> None:
     df_mass    = read_mass_sheet(XLSX_FILE)
     df_housing = read_housing_sheet(XLSX_FILE)
 
-    # Load motor material sheets (whitelist — skips Housing and other sheets)
     KNOWN_MAT_SHEETS = {cfg["mat_sheet"] for cfg in MOTOR_CONFIGS.values()}
     mat_sheets: Dict[str, pd.DataFrame] = {}
     xls = pd.ExcelFile(XLSX_FILE)
@@ -1004,7 +897,6 @@ def main() -> None:
         print(f"\n{'='*60}")
         print(f"Segment group: {seg_group}  ({seg_a} + {seg_b})")
 
-        # DC total count and gearbox probability sampled once per segment group
         dc_total_count = sample_motor_counts(
             df_num, (seg_a, seg_b), "MediumDCMotors", rng, N_SAMPLES
         )
@@ -1013,7 +905,6 @@ def main() -> None:
         seg_results = {}
         seg_sens    = {}
 
-        # Accumulators for grand totals (sample-wise sum across motor types)
         grand_count    = np.zeros(N_SAMPLES, dtype=float)
         grand_mass     = np.zeros(N_SAMPLES, dtype=float)
         grand_mat_dict: Dict[str, np.ndarray] = {}
@@ -1079,12 +970,13 @@ def main() -> None:
                     "Quantity": qty,
                     "Mean": float(np.mean(data)),
                     "Std":  float(np.std(data)),
-                    "P05":  float(np.quantile(data, 0.05)),
-                    "P50":  float(np.quantile(data, 0.50)),
-                    "P95":  float(np.quantile(data, 0.95)),
+                    "Mode": float(kde_mode(data)),
+                    "P025": float(np.quantile(data, 0.025)),
+                    "Median":  float(np.quantile(data, 0.50)),
+                    "P975": float(np.quantile(data, 0.975)),
                 })
 
-            # ── 6. Material composition with integrated housing split ────
+            # ── 6. Material composition ────
             sheet_name = cfg["mat_sheet"]
             if sheet_name not in mat_sheets:
                 print(f"    WARNING: sheet '{sheet_name}' not found, skipping materials.")
@@ -1092,8 +984,6 @@ def main() -> None:
                 comp_df           = mat_sheets[sheet_name]
                 materials, ratios = sample_material_ratios(comp_df, rng, N_SAMPLES)
 
-                # --- Housing split: replace Aluminum_Steel with Aluminum & Steel ---
-                # Check if HousingFrame has an Aluminum_Steel entry
                 hf_mask = (
                     (comp_df["component"].str.lower() == "housingframe")
                     & (comp_df["material"].str.lower() == "aluminum_steel")
@@ -1107,7 +997,6 @@ def main() -> None:
                     )
                     print(f"    HousingFrame split applied: Aluminum_Steel → Aluminum + Steel")
 
-                # --- Gearbox_Housing split: replace Aluminum_Steel with Aluminum & Steel ---
                 gb_hsg_mask = (
                     (comp_df["component"].str.lower() == "gearbox_housing")
                     & (comp_df["material"].str.lower() == "aluminum_steel")
@@ -1121,16 +1010,11 @@ def main() -> None:
                     )
                     print(f"    Gearbox_Housing split applied: Aluminum_Steel → Aluminum + Steel")
 
-                # Compute material mass from (possibly updated) ratios
                 material_mass_kg = total_mass_kg[:, None] * ratios
 
-                # Aggregate duplicate material names (e.g. Steel from housing
-                # split + Steel from another component) so each unique material
-                # appears only once in outputs and plots.
                 materials, material_mass_kg, ratios = \
                     aggregate_duplicate_materials(materials, material_mass_kg, ratios)
 
-                # Accumulate into grand total material dict (sample-wise)
                 for j, mat in enumerate(materials):
                     if mat not in grand_mat_dict:
                         grand_mat_dict[mat] = np.zeros(N_SAMPLES, dtype=float)
@@ -1150,7 +1034,7 @@ def main() -> None:
         save_distribution_plot(seg_group, seg_results)
         save_sensitivity_panel(seg_group, seg_sens)
 
-        # ── Grand total figures & exports for this segment ────
+        # ── Grand total figures & exports ────
         save_grand_total_distribution_plot(seg_group, grand_count, grand_mass)
 
         export_histogram_csv(grand_count, DIR_HIST / f"hist_{seg_group}_GrandTotal_count.csv")
@@ -1163,12 +1047,12 @@ def main() -> None:
                 "Quantity": qty,
                 "Mean": float(np.mean(data)),
                 "Std":  float(np.std(data)),
-                "P05":  float(np.quantile(data, 0.05)),
-                "P50":  float(np.quantile(data, 0.50)),
-                "P95":  float(np.quantile(data, 0.95)),
+                "Mode": float(kde_mode(data)),
+                "P025": float(np.quantile(data, 0.025)),
+                "Median":  float(np.quantile(data, 0.50)),
+                "P975": float(np.quantile(data, 0.975)),
             })
 
-        # Grand total material figure
         if grand_mat_dict:
             gt_mat_names = list(grand_mat_dict.keys())
             gt_mat_array = np.column_stack([grand_mat_dict[m] for m in gt_mat_names])
@@ -1177,20 +1061,21 @@ def main() -> None:
             for j, mat in enumerate(gt_mat_names):
                 x = gt_mat_array[:, j]
                 mat_summary_rows.append({
-                    "Segment":      seg_group,
-                    "Motor":        "GrandTotal",
-                    "Material":     mat,
-                    "Mean_mass_kg": float(np.mean(x)),
-                    "Std_mass_kg":  float(np.std(x)),
-                    "P05_mass_kg":  float(np.quantile(x, 0.05)),
-                    "P50_mass_kg":  float(np.quantile(x, 0.50)),
-                    "P95_mass_kg":  float(np.quantile(x, 0.95)),
-                    "Mean_ratio":   float(np.nan),
+                    "Segment":       seg_group,
+                    "Motor":         "GrandTotal",
+                    "Material":      mat,
+                    "Mean_mass_kg":  float(np.mean(x)),
+                    "Std_mass_kg":   float(np.std(x)),
+                    "Mode_mass_kg":  float(kde_mode(x)),
+                    "P025_mass_kg":  float(np.quantile(x, 0.025)),
+                    "Median_mass_kg":   float(np.quantile(x, 0.50)),
+                    "P975_mass_kg":  float(np.quantile(x, 0.975)),
+                    "Mean_ratio":    float(np.nan),
                 })
 
         grand_totals[seg_group] = {"count": grand_count, "mass": grand_mass}
 
-    # ── Cross-segment grand total comparison figures ────
+    # ── Cross-segment comparison figures ────
     save_grand_total_distribution_plots(grand_totals)
 
     # ── Summary CSVs ────
