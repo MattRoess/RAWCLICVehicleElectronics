@@ -1,0 +1,62 @@
+PCB_Group,Element,mg_per_cm2_min,mg_per_cm2_typical,mg_per_cm2_max,weight_percent_min,weight_percent_typical,weight_percent_max
+Power Electronics & HV Systems,Cu,15.0,25.0,40.0,50.0,60.0,70.0
+Power Electronics & HV Systems,Ag,0.1,0.3,0.6,0.3,0.5,1.0
+Power Electronics & HV Systems,Au,0.01,0.03,0.05,0.03,0.05,0.1
+Power Electronics & HV Systems,Sn,1.0,2.5,4.0,3.0,4.0,5.0
+Power Electronics & HV Systems,Pb,0.5,1.0,2.0,1.0,2.0,3.0
+Power Electronics & HV Systems,Ni,0.2,0.5,1.0,0.5,1.0,2.0
+Power Electronics & HV Systems,Pd,0.005,0.01,0.02,0.01,0.02,0.05
+Power Electronics & HV Systems,Al,2.0,5.0,10.0,5.0,8.0,12.0
+Power Electronics & HV Systems,Zn,0.1,0.2,0.5,0.2,0.4,0.8
+Power Electronics & HV Systems,Fe,1.0,3.0,5.0,3.0,5.0,8.0
+Battery Management Systems,Cu,10.0,20.0,30.0,40.0,50.0,60.0
+Battery Management Systems,Ag,0.05,0.2,0.4,0.2,0.4,0.8
+Battery Management Systems,Au,0.005,0.02,0.04,0.02,0.04,0.08
+Battery Management Systems,Sn,1.5,3.0,5.0,4.0,5.0,6.0
+Battery Management Systems,Pb,0.2,0.8,1.5,0.5,1.5,2.5
+Battery Management Systems,Ni,0.3,0.6,1.2,0.8,1.2,2.2
+Battery Management Systems,Pd,0.002,0.008,0.015,0.005,0.015,0.03
+Battery Management Systems,Al,3.0,6.0,12.0,8.0,10.0,15.0
+Battery Management Systems,Zn,0.2,0.3,0.6,0.4,0.6,1.0
+Battery Management Systems,Fe,2.0,4.0,6.0,5.0,7.0,10.0
+Vehicle Control & Computing,Cu,8.0,15.0,25.0,30.0,40.0,50.0
+Vehicle Control & Computing,Ag,0.02,0.1,0.3,0.1,0.3,0.6
+Vehicle Control & Computing,Au,0.01,0.05,0.1,0.05,0.1,0.2
+Vehicle Control & Computing,Sn,2.0,4.0,6.0,5.0,7.0,9.0
+Vehicle Control & Computing,Pb,0.1,0.5,1.0,0.3,1.0,2.0
+Vehicle Control & Computing,Ni,0.5,1.0,2.0,1.5,2.5,4.0
+Vehicle Control & Computing,Pd,0.01,0.03,0.06,0.03,0.06,0.12
+Vehicle Control & Computing,Al,1.0,3.0,7.0,3.0,5.0,10.0
+Vehicle Control & Computing,Zn,0.1,0.2,0.4,0.2,0.4,0.8
+Vehicle Control & Computing,Fe,1.5,3.5,5.5,4.0,6.0,9.0
+Infotainment & Communication,Cu,5.0,12.0,20.0,25.0,35.0,45.0
+Infotainment & Communication,Ag,0.05,0.2,0.5,0.2,0.5,1.0
+Infotainment & Communication,Au,0.02,0.1,0.2,0.1,0.2,0.4
+Infotainment & Communication,Sn,2.5,5.0,8.0,6.0,9.0,12.0
+Infotainment & Communication,Pb,0.05,0.3,0.8,0.1,0.6,1.5
+Infotainment & Communication,Ni,0.4,0.8,1.5,1.0,2.0,3.5
+Infotainment & Communication,Pd,0.02,0.05,0.1,0.05,0.1,0.2
+Infotainment & Communication,Al,0.5,2.0,5.0,1.5,4.0,8.0
+Infotainment & Communication,Zn,0.05,0.15,0.3,0.1,0.3,0.6
+Infotainment & Communication,Fe,1.0,2.5,4.5,3.0,5.0,8.0
+Safety & Sensor Systems,Cu,7.0,14.0,22.0,30.0,40.0,50.0
+Safety & Sensor Systems,Ag,0.03,0.15,0.35,0.15,0.4,0.8
+Safety & Sensor Systems,Au,0.015,0.06,0.12,0.06,0.15,0.25
+Safety & Sensor Systems,Sn,1.8,3.5,5.5,4.5,6.5,8.5
+Safety & Sensor Systems,Pb,0.15,0.6,1.2,0.4,1.2,2.2
+Safety & Sensor Systems,Ni,0.6,1.2,2.2,1.8,2.8,4.5
+Safety & Sensor Systems,Pd,0.015,0.035,0.07,0.04,0.07,0.15
+Safety & Sensor Systems,Al,1.2,3.5,8.0,3.5,6.0,11.0
+Safety & Sensor Systems,Zn,0.12,0.25,0.45,0.25,0.5,0.9
+Safety & Sensor Systems,Fe,1.8,3.8,5.8,4.5,6.5,9.5
+PCB_Group,Element,mg_per_cm2_min,mg_per_cm2_typical,mg_per_cm2_max,weight_percent_min,weight_percent_typical,weight_percent_max
+Matrix Lighting & Illumination Systems,Cu,20.0,30.0,45.0,55.0,65.0,75.0
+Matrix Lighting & Illumination Systems,Ag,0.08,0.25,0.5,0.2,0.4,0.8
+Matrix Lighting & Illumination Systems,Au,0.02,0.04,0.06,0.04,0.06,0.1
+Matrix Lighting & Illumination Systems,Sn,1.2,2.8,4.5,3.5,4.5,5.5
+Matrix Lighting & Illumination Systems,Pb,0.0,0.1,0.3,0.0,0.2,0.5
+Matrix Lighting & Illumination Systems,Ni,0.3,0.6,1.1,0.8,1.2,2.0
+Matrix Lighting & Illumination Systems,Pd,0.008,0.015,0.025,0.02,0.03,0.06
+Matrix Lighting & Illumination Systems,Al,5.0,10.0,18.0,10.0,15.0,20.0
+Matrix Lighting & Illumination Systems,Zn,0.15,0.25,0.55,0.3,0.5,0.9
+Matrix Lighting & Illumination Systems,Fe,1.5,3.5,5.5,3.5,5.5,8.5

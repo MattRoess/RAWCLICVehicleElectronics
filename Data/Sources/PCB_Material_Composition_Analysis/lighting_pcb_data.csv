@@ -1,0 +1,11 @@
+PCB_Group,Element,mg_per_cm2_min,mg_per_cm2_typical,mg_per_cm2_max,weight_percent_min,weight_percent_typical,weight_percent_max
+Matrix Lighting & Illumination Systems,Cu,20.0,30.0,45.0,55.0,65.0,75.0
+Matrix Lighting & Illumination Systems,Ag,0.08,0.25,0.5,0.2,0.4,0.8
+Matrix Lighting & Illumination Systems,Au,0.02,0.04,0.06,0.04,0.06,0.1
+Matrix Lighting & Illumination Systems,Sn,1.2,2.8,4.5,3.5,4.5,5.5
+Matrix Lighting & Illumination Systems,Pb,0.0,0.1,0.3,0.0,0.2,0.5
+Matrix Lighting & Illumination Systems,Ni,0.3,0.6,1.1,0.8,1.2,2.0
+Matrix Lighting & Illumination Systems,Pd,0.008,0.015,0.025,0.02,0.03,0.06
+Matrix Lighting & Illumination Systems,Al,5.0,10.0,18.0,10.0,15.0,20.0
+Matrix Lighting & Illumination Systems,Zn,0.15,0.25,0.55,0.3,0.5,0.9
+Matrix Lighting & Illumination Systems,Fe,1.5,3.5,5.5,3.5,5.5,8.5

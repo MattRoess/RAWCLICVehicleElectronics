@@ -1,0 +1,494 @@
+{
+  "Power Electronics & HV Systems": {
+    "Cu": {
+      "mg_per_cm2_min": 15,
+      "mg_per_cm2_typical": 25,
+      "mg_per_cm2_max": 40,
+      "weight_percent_min": 50,
+      "weight_percent_typical": 60,
+      "weight_percent_max": 70
+    },
+    "Ag": {
+      "mg_per_cm2_min": 0.1,
+      "mg_per_cm2_typical": 0.3,
+      "mg_per_cm2_max": 0.6,
+      "weight_percent_min": 0.3,
+      "weight_percent_typical": 0.5,
+      "weight_percent_max": 1
+    },
+    "Au": {
+      "mg_per_cm2_min": 0.01,
+      "mg_per_cm2_typical": 0.03,
+      "mg_per_cm2_max": 0.05,
+      "weight_percent_min": 0.03,
+      "weight_percent_typical": 0.05,
+      "weight_percent_max": 0.1
+    },
+    "Sn": {
+      "mg_per_cm2_min": 1,
+      "mg_per_cm2_typical": 2.5,
+      "mg_per_cm2_max": 4,
+      "weight_percent_min": 3,
+      "weight_percent_typical": 4,
+      "weight_percent_max": 5
+    },
+    "Pb": {
+      "mg_per_cm2_min": 0.5,
+      "mg_per_cm2_typical": 1,
+      "mg_per_cm2_max": 2,
+      "weight_percent_min": 1,
+      "weight_percent_typical": 2,
+      "weight_percent_max": 3
+    },
+    "Ni": {
+      "mg_per_cm2_min": 0.2,
+      "mg_per_cm2_typical": 0.5,
+      "mg_per_cm2_max": 1,
+      "weight_percent_min": 0.5,
+      "weight_percent_typical": 1,
+      "weight_percent_max": 2
+    },
+    "Pd": {
+      "mg_per_cm2_min": 0.005,
+      "mg_per_cm2_typical": 0.01,
+      "mg_per_cm2_max": 0.02,
+      "weight_percent_min": 0.01,
+      "weight_percent_typical": 0.02,
+      "weight_percent_max": 0.05
+    },
+    "Al": {
+      "mg_per_cm2_min": 2,
+      "mg_per_cm2_typical": 5,
+      "mg_per_cm2_max": 10,
+      "weight_percent_min": 5,
+      "weight_percent_typical": 8,
+      "weight_percent_max": 12
+    },
+    "Zn": {
+      "mg_per_cm2_min": 0.1,
+      "mg_per_cm2_typical": 0.2,
+      "mg_per_cm2_max": 0.5,
+      "weight_percent_min": 0.2,
+      "weight_percent_typical": 0.4,
+      "weight_percent_max": 0.8
+    },
+    "Fe": {
+      "mg_per_cm2_min": 1,
+      "mg_per_cm2_typical": 3,
+      "mg_per_cm2_max": 5,
+      "weight_percent_min": 3,
+      "weight_percent_typical": 5,
+      "weight_percent_max": 8
+    }
+  },
+  "Battery Management Systems": {
+    "Cu": {
+      "mg_per_cm2_min": 10,
+      "mg_per_cm2_typical": 20,
+      "mg_per_cm2_max": 30,
+      "weight_percent_min": 40,
+      "weight_percent_typical": 50,
+      "weight_percent_max": 60
+    },
+    "Ag": {
+      "mg_per_cm2_min": 0.05,
+      "mg_per_cm2_typical": 0.2,
+      "mg_per_cm2_max": 0.4,
+      "weight_percent_min": 0.2,
+      "weight_percent_typical": 0.4,
+      "weight_percent_max": 0.8
+    },
+    "Au": {
+      "mg_per_cm2_min": 0.005,
+      "mg_per_cm2_typical": 0.02,
+      "mg_per_cm2_max": 0.04,
+      "weight_percent_min": 0.02,
+      "weight_percent_typical": 0.04,
+      "weight_percent_max": 0.08
+    },
+    "Sn": {
+      "mg_per_cm2_min": 1.5,
+      "mg_per_cm2_typical": 3,
+      "mg_per_cm2_max": 5,
+      "weight_percent_min": 4,
+      "weight_percent_typical": 5,
+      "weight_percent_max": 6
+    },
+    "Pb": {
+      "mg_per_cm2_min": 0.2,
+      "mg_per_cm2_typical": 0.8,
+      "mg_per_cm2_max": 1.5,
+      "weight_percent_min": 0.5,
+      "weight_percent_typical": 1.5,
+      "weight_percent_max": 2.5
+    },
+    "Ni": {
+      "mg_per_cm2_min": 0.3,
+      "mg_per_cm2_typical": 0.6,
+      "mg_per_cm2_max": 1.2,
+      "weight_percent_min": 0.8,
+      "weight_percent_typical": 1.2,
+      "weight_percent_max": 2.2
+    },
+    "Pd": {
+      "mg_per_cm2_min": 0.002,
+      "mg_per_cm2_typical": 0.008,
+      "mg_per_cm2_max": 0.015,
+      "weight_percent_min": 0.005,
+      "weight_percent_typical": 0.015,
+      "weight_percent_max": 0.03
+    },
+    "Al": {
+      "mg_per_cm2_min": 3,
+      "mg_per_cm2_typical": 6,
+      "mg_per_cm2_max": 12,
+      "weight_percent_min": 8,
+      "weight_percent_typical": 10,
+      "weight_percent_max": 15
+    },
+    "Zn": {
+      "mg_per_cm2_min": 0.2,
+      "mg_per_cm2_typical": 0.3,
+      "mg_per_cm2_max": 0.6,
+      "weight_percent_min": 0.4,
+      "weight_percent_typical": 0.6,
+      "weight_percent_max": 1
+    },
+    "Fe": {
+      "mg_per_cm2_min": 2,
+      "mg_per_cm2_typical": 4,
+      "mg_per_cm2_max": 6,
+      "weight_percent_min": 5,
+      "weight_percent_typical": 7,
+      "weight_percent_max": 10
+    }
+  },
+  "Vehicle Control & Computing": {
+    "Cu": {
+      "mg_per_cm2_min": 8,
+      "mg_per_cm2_typical": 15,
+      "mg_per_cm2_max": 25,
+      "weight_percent_min": 30,
+      "weight_percent_typical": 40,
+      "weight_percent_max": 50
+    },
+    "Ag": {
+      "mg_per_cm2_min": 0.02,
+      "mg_per_cm2_typical": 0.1,
+      "mg_per_cm2_max": 0.3,
+      "weight_percent_min": 0.1,
+      "weight_percent_typical": 0.3,
+      "weight_percent_max": 0.6
+    },
+    "Au": {
+      "mg_per_cm2_min": 0.01,
+      "mg_per_cm2_typical": 0.05,
+      "mg_per_cm2_max": 0.1,
+      "weight_percent_min": 0.05,
+      "weight_percent_typical": 0.1,
+      "weight_percent_max": 0.2
+    },
+    "Sn": {
+      "mg_per_cm2_min": 2,
+      "mg_per_cm2_typical": 4,
+      "mg_per_cm2_max": 6,
+      "weight_percent_min": 5,
+      "weight_percent_typical": 7,
+      "weight_percent_max": 9
+    },
+    "Pb": {
+      "mg_per_cm2_min": 0.1,
+      "mg_per_cm2_typical": 0.5,
+      "mg_per_cm2_max": 1,
+      "weight_percent_min": 0.3,
+      "weight_percent_typical": 1,
+      "weight_percent_max": 2
+    },
+    "Ni": {
+      "mg_per_cm2_min": 0.5,
+      "mg_per_cm2_typical": 1,
+      "mg_per_cm2_max": 2,
+      "weight_percent_min": 1.5,
+      "weight_percent_typical": 2.5,
+      "weight_percent_max": 4
+    },
+    "Pd": {
+      "mg_per_cm2_min": 0.01,
+      "mg_per_cm2_typical": 0.03,
+      "mg_per_cm2_max": 0.06,
+      "weight_percent_min": 0.03,
+      "weight_percent_typical": 0.06,
+      "weight_percent_max": 0.12
+    },
+    "Al": {
+      "mg_per_cm2_min": 1,
+      "mg_per_cm2_typical": 3,
+      "mg_per_cm2_max": 7,
+      "weight_percent_min": 3,
+      "weight_percent_typical": 5,
+      "weight_percent_max": 10
+    },
+    "Zn": {
+      "mg_per_cm2_min": 0.1,
+      "mg_per_cm2_typical": 0.2,
+      "mg_per_cm2_max": 0.4,
+      "weight_percent_min": 0.2,
+      "weight_percent_typical": 0.4,
+      "weight_percent_max": 0.8
+    },
+    "Fe": {
+      "mg_per_cm2_min": 1.5,
+      "mg_per_cm2_typical": 3.5,
+      "mg_per_cm2_max": 5.5,
+      "weight_percent_min": 4,
+      "weight_percent_typical": 6,
+      "weight_percent_max": 9
+    }
+  },
+  "Infotainment & Communication": {
+    "Cu": {
+      "mg_per_cm2_min": 5,
+      "mg_per_cm2_typical": 12,
+      "mg_per_cm2_max": 20,
+      "weight_percent_min": 25,
+      "weight_percent_typical": 35,
+      "weight_percent_max": 45
+    },
+    "Ag": {
+      "mg_per_cm2_min": 0.05,
+      "mg_per_cm2_typical": 0.2,
+      "mg_per_cm2_max": 0.5,
+      "weight_percent_min": 0.2,
+      "weight_percent_typical": 0.5,
+      "weight_percent_max": 1
+    },
+    "Au": {
+      "mg_per_cm2_min": 0.02,
+      "mg_per_cm2_typical": 0.1,
+      "mg_per_cm2_max": 0.2,
+      "weight_percent_min": 0.1,
+      "weight_percent_typical": 0.2,
+      "weight_percent_max": 0.4
+    },
+    "Sn": {
+      "mg_per_cm2_min": 2.5,
+      "mg_per_cm2_typical": 5,
+      "mg_per_cm2_max": 8,
+      "weight_percent_min": 6,
+      "weight_percent_typical": 9,
+      "weight_percent_max": 12
+    },
+    "Pb": {
+      "mg_per_cm2_min": 0.05,
+      "mg_per_cm2_typical": 0.3,
+      "mg_per_cm2_max": 0.8,
+      "weight_percent_min": 0.1,
+      "weight_percent_typical": 0.6,
+      "weight_percent_max": 1.5
+    },
+    "Ni": {
+      "mg_per_cm2_min": 0.4,
+      "mg_per_cm2_typical": 0.8,
+      "mg_per_cm2_max": 1.5,
+      "weight_percent_min": 1,
+      "weight_percent_typical": 2,
+      "weight_percent_max": 3.5
+    },
+    "Pd": {
+      "mg_per_cm2_min": 0.02,
+      "mg_per_cm2_typical": 0.05,
+      "mg_per_cm2_max": 0.1,
+      "weight_percent_min": 0.05,
+      "weight_percent_typical": 0.1,
+      "weight_percent_max": 0.2
+    },
+    "Al": {
+      "mg_per_cm2_min": 0.5,
+      "mg_per_cm2_typical": 2,
+      "mg_per_cm2_max": 5,
+      "weight_percent_min": 1.5,
+      "weight_percent_typical": 4,
+      "weight_percent_max": 8
+    },
+    "Zn": {
+      "mg_per_cm2_min": 0.05,
+      "mg_per_cm2_typical": 0.15,
+      "mg_per_cm2_max": 0.3,
+      "weight_percent_min": 0.1,
+      "weight_percent_typical": 0.3,
+      "weight_percent_max": 0.6
+    },
+    "Fe": {
+      "mg_per_cm2_min": 1,
+      "mg_per_cm2_typical": 2.5,
+      "mg_per_cm2_max": 4.5,
+      "weight_percent_min": 3,
+      "weight_percent_typical": 5,
+      "weight_percent_max": 8
+    }
+  },
+  "Safety & Sensor Systems": {
+    "Cu": {
+      "mg_per_cm2_min": 7,
+      "mg_per_cm2_typical": 14,
+      "mg_per_cm2_max": 22,
+      "weight_percent_min": 30,
+      "weight_percent_typical": 40,
+      "weight_percent_max": 50
+    },
+    "Ag": {
+      "mg_per_cm2_min": 0.03,
+      "mg_per_cm2_typical": 0.15,
+      "mg_per_cm2_max": 0.35,
+      "weight_percent_min": 0.15,
+      "weight_percent_typical": 0.4,
+      "weight_percent_max": 0.8
+    },
+    "Au": {
+      "mg_per_cm2_min": 0.015,
+      "mg_per_cm2_typical": 0.06,
+      "mg_per_cm2_max": 0.12,
+      "weight_percent_min": 0.06,
+      "weight_percent_typical": 0.15,
+      "weight_percent_max": 0.25
+    },
+    "Sn": {
+      "mg_per_cm2_min": 1.8,
+      "mg_per_cm2_typical": 3.5,
+      "mg_per_cm2_max": 5.5,
+      "weight_percent_min": 4.5,
+      "weight_percent_typical": 6.5,
+      "weight_percent_max": 8.5
+    },
+    "Pb": {
+      "mg_per_cm2_min": 0.15,
+      "mg_per_cm2_typical": 0.6,
+      "mg_per_cm2_max": 1.2,
+      "weight_percent_min": 0.4,
+      "weight_percent_typical": 1.2,
+      "weight_percent_max": 2.2
+    },
+    "Ni": {
+      "mg_per_cm2_min": 0.6,
+      "mg_per_cm2_typical": 1.2,
+      "mg_per_cm2_max": 2.2,
+      "weight_percent_min": 1.8,
+      "weight_percent_typical": 2.8,
+      "weight_percent_max": 4.5
+    },
+    "Pd": {
+      "mg_per_cm2_min": 0.015,
+      "mg_per_cm2_typical": 0.035,
+      "mg_per_cm2_max": 0.07,
+      "weight_percent_min": 0.04,
+      "weight_percent_typical": 0.07,
+      "weight_percent_max": 0.15
+    },
+    "Al": {
+      "mg_per_cm2_min": 1.2,
+      "mg_per_cm2_typical": 3.5,
+      "mg_per_cm2_max": 8,
+      "weight_percent_min": 3.5,
+      "weight_percent_typical": 6,
+      "weight_percent_max": 11
+    },
+    "Zn": {
+      "mg_per_cm2_min": 0.12,
+      "mg_per_cm2_typical": 0.25,
+      "mg_per_cm2_max": 0.45,
+      "weight_percent_min": 0.25,
+      "weight_percent_typical": 0.5,
+      "weight_percent_max": 0.9
+    },
+    "Fe": {
+      "mg_per_cm2_min": 1.8,
+      "mg_per_cm2_typical": 3.8,
+      "mg_per_cm2_max": 5.8,
+      "weight_percent_min": 4.5,
+      "weight_percent_typical": 6.5,
+      "weight_percent_max": 9.5
+    }
+  },
+  "Matrix Lighting & Illumination Systems": {
+    "Cu": {
+      "mg_per_cm2_min": 20,
+      "mg_per_cm2_typical": 30,
+      "mg_per_cm2_max": 45,
+      "weight_percent_min": 55,
+      "weight_percent_typical": 65,
+      "weight_percent_max": 75
+    },
+    "Ag": {
+      "mg_per_cm2_min": 0.08,
+      "mg_per_cm2_typical": 0.25,
+      "mg_per_cm2_max": 0.5,
+      "weight_percent_min": 0.2,
+      "weight_percent_typical": 0.4,
+      "weight_percent_max": 0.8
+    },
+    "Au": {
+      "mg_per_cm2_min": 0.02,
+      "mg_per_cm2_typical": 0.04,
+      "mg_per_cm2_max": 0.06,
+      "weight_percent_min": 0.04,
+      "weight_percent_typical": 0.06,
+      "weight_percent_max": 0.1
+    },
+    "Sn": {
+      "mg_per_cm2_min": 1.2,
+      "mg_per_cm2_typical": 2.8,
+      "mg_per_cm2_max": 4.5,
+      "weight_percent_min": 3.5,
+      "weight_percent_typical": 4.5,
+      "weight_percent_max": 5.5
+    },
+    "Pb": {
+      "mg_per_cm2_min": 0,
+      "mg_per_cm2_typical": 0.1,
+      "mg_per_cm2_max": 0.3,
+      "weight_percent_min": 0,
+      "weight_percent_typical": 0.2,
+      "weight_percent_max": 0.5
+    },
+    "Ni": {
+      "mg_per_cm2_min": 0.3,
+      "mg_per_cm2_typical": 0.6,
+      "mg_per_cm2_max": 1.1,
+      "weight_percent_min": 0.8,
+      "weight_percent_typical": 1.2,
+      "weight_percent_max": 2
+    },
+    "Pd": {
+      "mg_per_cm2_min": 0.008,
+      "mg_per_cm2_typical": 0.015,
+      "mg_per_cm2_max": 0.025,
+      "weight_percent_min": 0.02,
+      "weight_percent_typical": 0.03,
+      "weight_percent_max": 0.06
+    },
+    "Al": {
+      "mg_per_cm2_min": 5,
+      "mg_per_cm2_typical": 10,
+      "mg_per_cm2_max": 18,
+      "weight_percent_min": 10,
+      "weight_percent_typical": 15,
+      "weight_percent_max": 20
+    },
+    "Zn": {
+      "mg_per_cm2_min": 0.15,
+      "mg_per_cm2_typical": 0.25,
+      "mg_per_cm2_max": 0.55,
+      "weight_percent_min": 0.3,
+      "weight_percent_typical": 0.5,
+      "weight_percent_max": 0.9
+    },
+    "Fe": {
+      "mg_per_cm2_min": 1.5,
+      "mg_per_cm2_typical": 3.5,
+      "mg_per_cm2_max": 5.5,
+      "weight_percent_min": 3.5,
+      "weight_percent_typical": 5.5,
+      "weight_percent_max": 8.5
+    }
+  }
+}
