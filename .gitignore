@@ -1,0 +1,21 @@
+### PYTHON & ENVIRONMENT
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+
+### OUTPUT FOLDERS ONLY
+ElectricMotorElementMC/*/
+ElectricMotorMC/*/
+PCBAreaMC/*/
+PCBElementMC/*/
+
+### SYSTEM FILES
+.DS_Store
+Thumbs.db
+
+### POSITRON / JUPYTER
+.ipynb_checkpoints/
+.positron/
