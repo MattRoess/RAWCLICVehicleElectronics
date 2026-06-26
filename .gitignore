@@ -12,9 +12,7 @@ __pycache__/
 *.png
 
 # Specifically ignore common output subfolders across your modules
-**/raw_data/
-**/raw_data_element/
-
+**/Data/
 
 ### SYSTEM FILES
 .DS_Store
