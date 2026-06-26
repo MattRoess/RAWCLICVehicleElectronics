@@ -34,7 +34,6 @@ import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 from pathlib import Path
 
 
@@ -117,62 +116,72 @@ print(f"Loaded {len(pcb_dist)} components from PCB distribution file")
 print(f"PCB size parameters loaded successfully\n")
 
 
-def run_single_simulation(segment='AB'):
-    """Run one Monte Carlo iteration for a specific segment."""
-    small_count = 0.0
-    medium_count = 0.0
-    large_count = 0.0
-    small_area = 0.0
-    medium_area = 0.0
-    large_area = 0.0
+def run_batch_simulation(component_df, segment, ndraws):
+    """
+    Vectorized Monte Carlo for ALL draws at once, for a given set of
+    components (rows of pcb_dist) and a given segment.
 
-    for _, row in pcb_dist.iterrows():
-        n_small = np.random.uniform(row[f'{segment}_Small_min'], row[f'{segment}_Small_max'])
-        n_medium = np.random.uniform(row[f'{segment}_Medium_min'], row[f'{segment}_Medium_max'])
-        n_large = np.random.uniform(row[f'{segment}_Large_min'], row[f'{segment}_Large_max'])
+    Preserves the original model exactly: for every component row and
+    every draw, a count is sampled (uniform), and independently a
+    length/width is sampled (triangular) for that same row+draw, and
+    area = count * length * width. The only change vs. the original
+    is that instead of looping draw-by-draw and row-by-row in Python,
+    we draw full (n_rows, ndraws) matrices in one NumPy call and sum
+    over rows -- mathematically identical model, just vectorized.
 
-        small_count += n_small
-        medium_count += n_medium
-        large_count += n_large
+    The original only drew a length/width when n > 0 for that row+draw;
+    since length/width are independent of n and unused when n <= 0
+    (count contributes ~0 area in that case from continuous uniforms
+    that can dip slightly negative), here we draw length/width for
+    every row+draw unconditionally -- this does not change the
+    distribution of total_area because area = n * length * width is
+    continuous in n and the n<=0 region contributes negligibly/
+    consistently either way.
 
-        if n_small > 0:
-            small_length = np.random.triangular(
-                pcb_size_params['small']['length']['min'],
-                pcb_size_params['small']['length']['mode'],
-                pcb_size_params['small']['length']['max']
-            )
-            small_width = np.random.triangular(
-                pcb_size_params['small']['width']['min'],
-                pcb_size_params['small']['width']['mode'],
-                pcb_size_params['small']['width']['max']
-            )
-            small_area += n_small * small_length * small_width
+    Returns a dict of 1D arrays, each of length ndraws.
+    """
+    n_rows = len(component_df)
 
-        if n_medium > 0:
-            medium_length = np.random.triangular(
-                pcb_size_params['medium']['length']['min'],
-                pcb_size_params['medium']['length']['mode'],
-                pcb_size_params['medium']['length']['max']
-            )
-            medium_width = np.random.triangular(
-                pcb_size_params['medium']['width']['min'],
-                pcb_size_params['medium']['width']['mode'],
-                pcb_size_params['medium']['width']['max']
-            )
-            medium_area += n_medium * medium_length * medium_width
+    small_min = component_df[f'{segment}_Small_min'].to_numpy()[:, None]
+    small_max = component_df[f'{segment}_Small_max'].to_numpy()[:, None]
+    medium_min = component_df[f'{segment}_Medium_min'].to_numpy()[:, None]
+    medium_max = component_df[f'{segment}_Medium_max'].to_numpy()[:, None]
+    large_min = component_df[f'{segment}_Large_min'].to_numpy()[:, None]
+    large_max = component_df[f'{segment}_Large_max'].to_numpy()[:, None]
 
-        if n_large > 0:
-            large_length = np.random.triangular(
-                pcb_size_params['large']['length']['min'],
-                pcb_size_params['large']['length']['mode'],
-                pcb_size_params['large']['length']['max']
-            )
-            large_width = np.random.triangular(
-                pcb_size_params['large']['width']['min'],
-                pcb_size_params['large']['width']['mode'],
-                pcb_size_params['large']['width']['max']
-            )
-            large_area += n_large * large_length * large_width
+    # Counts: (n_rows, ndraws) matrices
+    n_small = np.random.uniform(small_min, small_max, size=(n_rows, ndraws))
+    n_medium = np.random.uniform(medium_min, medium_max, size=(n_rows, ndraws))
+    n_large = np.random.uniform(large_min, large_max, size=(n_rows, ndraws))
+
+    # Lengths/widths: (n_rows, ndraws) matrices -- independent draw per row AND per draw,
+    # matching the original's per-row conditional draw inside the iterrows() loop
+    sp = pcb_size_params
+    small_length = np.random.triangular(sp['small']['length']['min'], sp['small']['length']['mode'],
+                                         sp['small']['length']['max'], size=(n_rows, ndraws))
+    small_width = np.random.triangular(sp['small']['width']['min'], sp['small']['width']['mode'],
+                                        sp['small']['width']['max'], size=(n_rows, ndraws))
+    medium_length = np.random.triangular(sp['medium']['length']['min'], sp['medium']['length']['mode'],
+                                          sp['medium']['length']['max'], size=(n_rows, ndraws))
+    medium_width = np.random.triangular(sp['medium']['width']['min'], sp['medium']['width']['mode'],
+                                         sp['medium']['width']['max'], size=(n_rows, ndraws))
+    large_length = np.random.triangular(sp['large']['length']['min'], sp['large']['length']['mode'],
+                                         sp['large']['length']['max'], size=(n_rows, ndraws))
+    large_width = np.random.triangular(sp['large']['width']['min'], sp['large']['width']['mode'],
+                                        sp['large']['width']['max'], size=(n_rows, ndraws))
+
+    # Per-row area, masked to zero where n <= 0 (matches original's "if n > 0" guard),
+    # then summed across rows to get one value per draw
+    small_area_rows = np.where(n_small > 0, n_small * small_length * small_width, 0.0)
+    medium_area_rows = np.where(n_medium > 0, n_medium * medium_length * medium_width, 0.0)
+    large_area_rows = np.where(n_large > 0, n_large * large_length * large_width, 0.0)
+
+    small_count = n_small.sum(axis=0)
+    medium_count = n_medium.sum(axis=0)
+    large_count = n_large.sum(axis=0)
+    small_area = small_area_rows.sum(axis=0)
+    medium_area = medium_area_rows.sum(axis=0)
+    large_area = large_area_rows.sum(axis=0)
 
     return {
         'total_small_pcbs': small_count,
@@ -190,7 +199,7 @@ def run_single_simulation(segment='AB'):
 # ====
 
 segments = ['AB', 'CD', 'EF']
-ndraws = 100000
+ndraws = 200000
 
 all_segment_results = {}
 
@@ -200,23 +209,7 @@ for segment in segments:
     print("="*70)
     print(f"Number of simulations: {ndraws:,}\n")
 
-    results = {
-        'total_small_pcbs': [],
-        'total_medium_pcbs': [],
-        'total_large_pcbs': [],
-        'total_small_area': [],
-        'total_medium_area': [],
-        'total_large_area': [],
-        'total_area': []
-    }
-
-    for _ in tqdm(range(ndraws), desc=f"Running {segment} simulations"):
-        sim_result = run_single_simulation(segment=segment)
-        for key in results.keys():
-            results[key].append(sim_result[key])
-
-    for key in results.keys():
-        results[key] = np.array(results[key])
+    results = run_batch_simulation(pcb_dist, segment, ndraws)
 
     all_segment_results[segment] = results
     print(f"\n{segment} Simulation complete!\n")
@@ -390,7 +383,7 @@ ax1.grid(True, alpha=0.3)
 # Plot 2: Box Plot Comparison
 ax2 = axes[0, 1]
 box_data = [all_segment_results[seg]['total_area'] for seg in segments]
-bp = ax2.boxplot(box_data, labels=segments, patch_artist=True)
+bp = ax2.boxplot(box_data, tick_labels=segments, patch_artist=True)
 colors = ['lightblue', 'lightgreen', 'lightcoral']
 for patch, color in zip(bp['boxes'], colors):
     patch.set_facecolor(color)
@@ -482,7 +475,7 @@ for segment in segments:
 
     ax4 = axes2[1, 1]
     box_data = [results['total_small_area'], results['total_medium_area'], results['total_large_area']]
-    bp = ax4.boxplot(box_data, labels=['Small', 'Medium', 'Large'], patch_artist=True)
+    bp = ax4.boxplot(box_data, tick_labels=['Small', 'Medium', 'Large'], patch_artist=True)
     colors_box = ['lightblue', 'lightgreen', 'lightcoral']
     for patch, color in zip(bp['boxes'], colors_box):
         patch.set_facecolor(color)
@@ -594,82 +587,18 @@ for segment in segments:
     for category in categories:
         category_components = pcb_dist[pcb_dist['PCB_Category'] == category]
 
+        batch = run_batch_simulation(category_components, segment, ndraws)
+
+        # Map batch keys (total_small_pcbs, ...) to this block's key names (small_pcbs, ...)
         cat_results = {
-            'small_pcbs': [],
-            'medium_pcbs': [],
-            'large_pcbs': [],
-            'small_area': [],
-            'medium_area': [],
-            'large_area': [],
-            'total_area': []
+            'small_pcbs': batch['total_small_pcbs'],
+            'medium_pcbs': batch['total_medium_pcbs'],
+            'large_pcbs': batch['total_large_pcbs'],
+            'small_area': batch['total_small_area'],
+            'medium_area': batch['total_medium_area'],
+            'large_area': batch['total_large_area'],
+            'total_area': batch['total_area']
         }
-
-        for _ in tqdm(range(ndraws), desc=f"{segment}-{category}", leave=False):
-            small_count = 0.0
-            medium_count = 0.0
-            large_count = 0.0
-            small_area = 0.0
-            medium_area = 0.0
-            large_area = 0.0
-
-            for _, row in category_components.iterrows():
-                n_small = np.random.uniform(row[f'{segment}_Small_min'], row[f'{segment}_Small_max'])
-                n_medium = np.random.uniform(row[f'{segment}_Medium_min'], row[f'{segment}_Medium_max'])
-                n_large = np.random.uniform(row[f'{segment}_Large_min'], row[f'{segment}_Large_max'])
-
-                small_count += n_small
-                medium_count += n_medium
-                large_count += n_large
-
-                if n_small > 0:
-                    small_length = np.random.triangular(
-                    pcb_size_params['small']['length']['min'],
-                    pcb_size_params['small']['length']['mode'],
-                    pcb_size_params['small']['length']['max']
-                    )
-                    small_width = np.random.triangular(
-                    pcb_size_params['small']['width']['min'],
-                    pcb_size_params['small']['width']['mode'],
-                    pcb_size_params['small']['width']['max']
-                    )
-                    small_area += n_small * small_length * small_width
-
-                if n_medium > 0:
-                    medium_length = np.random.triangular(
-                    pcb_size_params['medium']['length']['min'],
-                    pcb_size_params['medium']['length']['mode'],
-                    pcb_size_params['medium']['length']['max']
-                    )
-                    medium_width = np.random.triangular(
-                    pcb_size_params['medium']['width']['min'],
-                    pcb_size_params['medium']['width']['mode'],
-                    pcb_size_params['medium']['width']['max']
-                    )
-                    medium_area += n_medium * medium_length * medium_width
-
-                if n_large > 0:
-                    large_length = np.random.triangular(
-                    pcb_size_params['large']['length']['min'],
-                    pcb_size_params['large']['length']['mode'],
-                    pcb_size_params['large']['length']['max']
-                    )
-                    large_width = np.random.triangular(
-                    pcb_size_params['large']['width']['min'],
-                    pcb_size_params['large']['width']['mode'],
-                    pcb_size_params['large']['width']['max']
-                    )
-                    large_area += n_large * large_length * large_width
-
-            cat_results['small_pcbs'].append(small_count)
-            cat_results['medium_pcbs'].append(medium_count)
-            cat_results['large_pcbs'].append(large_count)
-            cat_results['small_area'].append(small_area)
-            cat_results['medium_area'].append(medium_area)
-            cat_results['large_area'].append(large_area)
-            cat_results['total_area'].append(small_area + medium_area + large_area)
-
-        for key in cat_results.keys():
-            cat_results[key] = np.array(cat_results[key])
 
         category_segment_results[segment][category] = cat_results
 
