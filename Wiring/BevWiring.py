@@ -1,8 +1,9 @@
 """
 BEV Wiring Harness Monte Carlo, 2020-2070 -- STATE-BASED, SENSOR-COUPLED
 ================================================================================
-This is the current model. Earlier generations (v3, v4) are in Archive/
-with a README explaining why each was replaced; both still run.
+This is the current model. Earlier generations (v3, v4) were deleted on
+2026-08-05; MODEL_HISTORY.md records why each was replaced, and they are
+recoverable from git history up to commit 554633e.
 
 WHY THIS MODEL LOOKS THE WAY IT DOES
 (the three defects of the previous generation that shaped it)
@@ -95,7 +96,7 @@ ADAS_FILE = DATA_DIR / "19_ADAS_sensor_adoption.xlsx"
 # EX90 carries 31 sensors and is certified L2; BMW's i7 carried 25 and was
 # certified L3. Keying sensor count on the certificate gets the near-term trend
 # backwards, because certified L3 is being WITHDRAWN in Europe while sensor
-# content keeps rising. Full argument: Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md
+# content keeps rising. Full argument: docs/ADAS_Sensor_Adoption_Report_2025_2070.md
 # Keep False available for diffing old against new; it is not maintained.
 USE_TIER_AXIS = True
 
@@ -270,7 +271,7 @@ def _load_tier_axis(years) -> dict:
     B  lidar penetration sheet Lidar             -> (3, n_years) Min/Mode/Max
     C  scenario          sheet Scenarios         -> multiplier curve per scenario
 
-    Every number traces to Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md;
+    Every number traces to docs/ADAS_Sensor_Adoption_Report_2025_2070.md;
     the sheets carry the section references. Anchors are read through the same
     PCHIP curve as every other share table here, so adding or deleting anchor
     years in Excel needs no code change.
@@ -278,7 +279,7 @@ def _load_tier_axis(years) -> dict:
     if not ADAS_FILE.exists():
         raise FileNotFoundError(
             f"ADAS adoption workbook not found: {ADAS_FILE}\n"
-            f"Generate it with: python3 Data/make_19_adas_sensor_adoption.py")
+            f"Generate it with: python3 tools/make_19_adas_sensor_adoption.py")
 
     # ---- A: tier shares, renormalised so columns sum to 1 after interpolation
     ts = pd.read_excel(ADAS_FILE, sheet_name="Tier_Shares", header=3)

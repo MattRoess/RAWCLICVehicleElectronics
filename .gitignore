@@ -7,12 +7,29 @@ __pycache__/
 .env
 
 ### DATA & OUTPUTS (The 2.6GB+ Culprits)
-# Ignore all CSV and PNG files because these are your MC outputs/plots
+# Ignore all CSV and PNG files because these are your MC outputs/plots.
+# These are the actual bulk -- regenerate them by re-running the models.
 *.csv
 *.png
 
-# Specifically ignore common output subfolders across your modules
-**/Data/
+# Data/ used to be ignored wholesale (**/Data/). That also excluded the MODEL
+# INPUTS -- so a clone got the models but not 17_ or 18_, and BevWiring.py
+# could not run at all. Data/ is now tracked, but only for what the CODE READS.
+#
+# Read by current scripts, therefore tracked:
+#   01_ 03_ 04_ 05_ 07_ 10_   (already were)
+#   06_  SensorNumbersMC.py
+#   17_  18_  19_             BevWiring.py
+#   make_19_adas_sensor_adoption.py   generates 19_
+#
+# Bulk third-party source material -- market reports, archives, scans, ~6.8 MB.
+# Not read by any script, some not ours to redistribute.
+Data/Sources/
+
+# Large generated outputs, wherever they land
+**/outputs/
+**/raw_data/
+**/histograms/
 
 ### SYSTEM FILES
 .DS_Store

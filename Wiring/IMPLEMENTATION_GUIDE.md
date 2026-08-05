@@ -3,7 +3,7 @@
 Short guide to what changed in `BevWiring.py`, how to run it, and where every
 number comes from. Written 2026-08-05.
 
-Full reasoning: `../Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md`.
+Full reasoning: `../docs/ADAS_Sensor_Adoption_Report_2025_2070.md`.
 Model handover: `BevWiring_STATUS.md`. Argument for the change:
 `AUTONOMY_LEVELS_VS_HARDWARE.md`.
 
@@ -27,7 +27,7 @@ the 50-bin convention and every output format are untouched.
 ## 2. Data flow
 
 ```
-Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md      the reasoning
+docs/ADAS_Sensor_Adoption_Report_2025_2070.md      the reasoning
         |                                                  (every number tagged
         |  make_19_adas_sensor_adoption.py                   FACT/DERIVED/ASSUMPTION)
         v
@@ -43,7 +43,7 @@ outputs/data/bev_wiring_stats.csv, ..._histograms.csv, outputs/plots/
 The workbook is **generated, not hand-maintained**. Edit the report, regenerate:
 
 ```bash
-python3 Data/make_19_adas_sensor_adoption.py
+python3 tools/make_19_adas_sensor_adoption.py
 ```
 
 Editing the workbook directly also works — the model reads whatever is there —
