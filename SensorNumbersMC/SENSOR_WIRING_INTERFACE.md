@@ -7,7 +7,7 @@ diverging.
 Written 2026-08-04. Revised 2026-08-05.
 
 > **SUPERSEDED IN PART.** The concrete instruction set now lives in
-> **`../Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md` §6**, with the
+> **`../docs/ADAS_Sensor_Adoption_Report_2025_2070.md` §6**, with the
 > numbers in **`../Data/19_ADAS_sensor_adoption.xlsx`** sheet
 > `Presence_per_Tier`. Two things changed since this document was written:
 >
@@ -144,7 +144,7 @@ Radar and lidar reproduce measured reality exactly. What actually needs doing:
 2. **Camera counts are low** — EF max 5 against 6–10 measured. Raise EF to 8–12,
    CD to 5–8, AB to 1–2 at the higher tiers. Note this is a 2× disagreement,
    which is *ordinary* by the standards recorded in
-   `../Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md` §1.2 — update the
+   `../docs/ADAS_Sensor_Adoption_Report_2025_2070.md` §1.2 — update the
    numbers, but the file is not broken.
 3. **Possible ultrasonic double-count.** Ultrasonics appear under both
    *Ultrasonic sensors* (8–12) and *Parking assist ECU* (8–12), against 12–16

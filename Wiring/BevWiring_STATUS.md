@@ -1,7 +1,7 @@
 # BEV wiring model — living status
 
-**Current model: `Wiring/BevWiring.py`** (generation 5; earlier ones in
-`Archive/` with a README saying why each was replaced).
+**Current model: `Wiring/BevWiring.py`** (generation 5; v3 and v4 were deleted
+on 2026-08-05 — `MODEL_HISTORY.md` records why each was replaced).
 Last updated 2026-08-05. This is the single handover document.
 
     python3 Wiring/BevWiring.py          # ~4 min at 200,000 iterations
@@ -23,16 +23,15 @@ Last updated 2026-08-05. This is the single handover document.
 | `Wiring/BevWiring.py` | **the model** |
 | `Wiring/IMPLEMENTATION_GUIDE.md` | **how the tier axis works, and how to switch scenarios** |
 | `Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md` | why certification was the wrong key |
-| `Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md` | the sensor-adoption reasoning; every number tagged FACT / DERIVED / ASSUMPTION |
+| `docs/ADAS_Sensor_Adoption_Report_2025_2070.md` | the sensor-adoption reasoning; every number tagged FACT / DERIVED / ASSUMPTION |
 | `Wiring/outputs/data/bev_wiring_stats.csv` | 20,808 rows — mean, P2.5, median, mode, P97.5, every year |
 | `Wiring/outputs/data/bev_wiring_histograms.csv` | 142,800 rows — 408 series × 7 snapshot years × **50 bins** |
 | `Wiring/outputs/plots/` | 38 figures — 8 trajectory, 30 histogram |
 | `Data/17_BEV_wiring_baseline_2025.xlsx` | 2025 baseline, gauges, SDV factors, SDV depth |
 | `Data/18_BEV_technology_penetration.xlsx` | architecture / voltage shares. Its `Metres_per_Sensor` is still read; its **`Sensors_per_Level` is not** |
 | `Data/19_ADAS_sensor_adoption.xlsx` | **tier shares, sensor counts per tier, lidar, scenarios, validation targets** |
-| `Data/make_19_adas_sensor_adoption.py` | regenerates `19_` from the report |
-| `Wiring/Archive/` | v3, v4, their outputs, and why they were replaced |
-| `Data/15_`, `Data/16_` | superseded, **not read** |
+| `tools/make_19_adas_sensor_adoption.py` | regenerates `19_` from the report |
+| `Wiring/MODEL_HISTORY.md` | why v3 and v4 were replaced, why `15_`/`16_` were retired, and the user decisions still in force |
 
 ---
 
@@ -200,8 +199,8 @@ independent hand-calculation exactly, so it is a finding, not a bug.
 Yellow = editable. Orange = assumption with no source. Green = fact / override.
 
 `19_` is **generated** from
-`Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md` by
-`Data/make_19_adas_sensor_adoption.py`. Editing the workbook works, but the next
+`docs/ADAS_Sensor_Adoption_Report_2025_2070.md` by
+`tools/make_19_adas_sensor_adoption.py`. Editing the workbook works, but the next
 regeneration overwrites it — for a permanent change, edit the report and the
 generator together. Anchor years are read through PCHIP, so adding or deleting
 year columns needs no code change.
@@ -223,7 +222,7 @@ The ADAS block still supplies roughly a quarter of the 2070 answer:
 | CD | 9% | 19% | 24% |
 | EF | 11% | 19% | 21% |
 
-**The instruction set is `Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md`
+**The instruction set is `docs/ADAS_Sensor_Adoption_Report_2025_2070.md`
 §6**, with the numbers in `19_` sheet `Presence_per_Tier` — 12 ADAS components
 × tiers H0–H4, already written and validated but **not yet consumed by any
 code**. `SensorNumbersMC/SENSOR_WIRING_INTERFACE.md` still holds the useful
@@ -371,6 +370,5 @@ generalises to the sensor-strategy problem, which is where the real gap is.
    that still stands.)
 10. **Taxonomy.** Output uses the report's 28 category codes, not the old 28
     wire types; not 1:1 (`17_` sheet `Mapping`).
-11. **Name collision inside the repo.** `Archive/BevWiring.py` is v3;
-    `Wiring/BevWiring.py` is current. Different directories, but do not move
-    files between them casually.
+11. ~~**Name collision inside the repo.**~~ **RESOLVED 2026-08-05** by deleting
+    `Wiring/Archive/`. There is now exactly one `BevWiring.py`.
