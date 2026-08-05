@@ -1,10 +1,32 @@
 # Sensor model ↔ wiring model interface
 
-**Purpose:** give `SensorNumbersMC.py` a time and autonomy-level dimension, so
-that `Wiring/BevWiring.py` reads real sensor counts instead of the invented
-table it uses today.
+**Purpose:** give `SensorNumbersMC.py` a time and hardware-tier dimension, so
+that it and `Wiring/BevWiring.py` share one sensor-adoption basis instead of
+diverging.
 
-Written 2026-08-04. Companion to `Wiring/BevWiring_STATUS.md`.
+Written 2026-08-04. Revised 2026-08-05.
+
+> **SUPERSEDED IN PART.** The concrete instruction set now lives in
+> **`../Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md` §6**, with the
+> numbers in **`../Data/19_ADAS_sensor_adoption.xlsx`** sheet
+> `Presence_per_Tier`. Two things changed since this document was written:
+>
+> 1. **The axis is no longer SAE level.** It is an installed-hardware tier
+>    H0–H4. Wiring follows hardware, not the certificate — Volvo's EX90 carries
+>    31 sensors at L2, BMW's i7 carried 25 at L3, and certified L3 is being
+>    *withdrawn* in Europe while sensor content rises. Rationale:
+>    `../Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md`.
+> 2. **`Wiring/BevWiring.py` has already been rewired** onto that axis
+>    (`USE_TIER_AXIS = True`). `SensorNumbersMC.py` has **not**. Until it is,
+>    the two models are on different axes — which is exactly the divergence
+>    §3 below warns about.
+>
+> §3's central insight is unchanged and is why the fix stays small: the
+> Std/Opt/Rare presence factor is already a penetration share. Read "level" as
+> "tier" throughout what follows.
+
+Companion to `Wiring/BevWiring_STATUS.md` and
+`Wiring/IMPLEMENTATION_GUIDE.md`.
 
 ---
 
@@ -95,12 +117,38 @@ summing.
 
 ---
 
-## 5. Two gaps in `06_VehicleSensorNumbers.xlsx`
+## 5. Gaps in `06_VehicleSensorNumbers.xlsx`
 
-1. **No radar rows and no lidar rows at all.** Only camera, IR camera and
-   ultrasonic exist. Radar is needed from L1 upward (EU GSR-2 mandates AEB),
-   lidar from L3. Both must be added or the level table cannot be built.
-2. **No time and no level dimension**, as above.
+> **CORRECTED 2026-08-05.** This section previously claimed `06_` has *"no
+> radar rows and no lidar rows at all."* **That was wrong** — the rows exist.
+> They sit under components *Front long-range radar*, *Corner short/mid-range
+> radars* and *LiDAR sensor*, but their `SensorType` values are the physical
+> parts (`RF transceiver`, `laser diode array`, `photodetector array`, `IMU`),
+> not the words "radar" and "lidar". It was a naming mismatch, not missing data.
+> The same false claim was in `18_` sheet `Notes` and has been corrected there.
+
+**And the file is more accurate than anyone credited.** Its EF maxima against
+three independently measured 2025–26 flagships:
+
+| Sensor | `06_` EF max | Mercedes EQS | BMW i7 | Volvo EX90 | verdict |
+|---|---|---|---|---|---|
+| Radar | 1 front + 4 corner = **5** | 5 | n/s | 5 | **exact** |
+| Lidar | **0–1** | 1 | 1 | 0 | **exact** |
+| Ultrasonic | 8–**12** | 13 | 12 | 16 | within 0–4 |
+| Cameras (CMOS) | **5** | 6 | n/s | 10 | low by 1–5 |
+
+Radar and lidar reproduce measured reality exactly. What actually needs doing:
+
+1. **No time and no tier dimension.** The real gap, and the reason this document
+   exists. See §3.
+2. **Camera counts are low** — EF max 5 against 6–10 measured. Raise EF to 8–12,
+   CD to 5–8, AB to 1–2 at the higher tiers. Note this is a 2× disagreement,
+   which is *ordinary* by the standards recorded in
+   `../Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md` §1.2 — update the
+   numbers, but the file is not broken.
+3. **Possible ultrasonic double-count.** Ultrasonics appear under both
+   *Ultrasonic sensors* (8–12) and *Parking assist ECU* (8–12), against 12–16
+   measured on real cars. **Check before summing** — this may be a 2× error.
 
 ---
 

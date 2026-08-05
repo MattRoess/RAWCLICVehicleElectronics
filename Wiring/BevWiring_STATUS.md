@@ -2,9 +2,17 @@
 
 **Current model: `Wiring/BevWiring.py`** (generation 5; earlier ones in
 `Archive/` with a README saying why each was replaced).
-Last updated 2026-08-04. This is the single handover document.
+Last updated 2026-08-05. This is the single handover document.
 
     python3 Wiring/BevWiring.py          # ~4 min at 200,000 iterations
+
+> **2026-08-05 — the ADAS axis changed.** Sensor content is no longer keyed on
+> SAE certification level. It is keyed on an installed **hardware tier** H0–H4,
+> plus a separate lidar driver and a post-2040 scenario driver, all in
+> `Data/19_ADAS_sensor_adoption.xlsx`. Read
+> **`IMPLEMENTATION_GUIDE.md`** before touching the code and
+> **`AUTONOMY_LEVELS_VS_HARDWARE.md`** for why. Sections 2, 8, 9 and 11 below
+> are updated; the rest is unchanged.
 
 ---
 
@@ -13,11 +21,16 @@ Last updated 2026-08-04. This is the single handover document.
 | File | Role |
 |---|---|
 | `Wiring/BevWiring.py` | **the model** |
+| `Wiring/IMPLEMENTATION_GUIDE.md` | **how the tier axis works, and how to switch scenarios** |
+| `Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md` | why certification was the wrong key |
+| `Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md` | the sensor-adoption reasoning; every number tagged FACT / DERIVED / ASSUMPTION |
 | `Wiring/outputs/data/bev_wiring_stats.csv` | 20,808 rows — mean, P2.5, median, mode, P97.5, every year |
 | `Wiring/outputs/data/bev_wiring_histograms.csv` | 142,800 rows — 408 series × 7 snapshot years × **50 bins** |
 | `Wiring/outputs/plots/` | 38 figures — 8 trajectory, 30 histogram |
 | `Data/17_BEV_wiring_baseline_2025.xlsx` | 2025 baseline, gauges, SDV factors, SDV depth |
-| `Data/18_BEV_technology_penetration.xlsx` | architecture / voltage / autonomy shares, sensors, scenario conversion |
+| `Data/18_BEV_technology_penetration.xlsx` | architecture / voltage shares. Its `Metres_per_Sensor` is still read; its **`Sensors_per_Level` is not** |
+| `Data/19_ADAS_sensor_adoption.xlsx` | **tier shares, sensor counts per tier, lidar, scenarios, validation targets** |
+| `Data/make_19_adas_sensor_adoption.py` | regenerates `19_` from the report |
 | `Wiring/Archive/` | v3, v4, their outputs, and why they were replaced |
 | `Data/15_`, `Data/16_` | superseded, **not read** |
 
@@ -25,21 +38,33 @@ Last updated 2026-08-04. This is the single handover document.
 
 ## 2. How it works
 
-One anchor year (2025), three independent drivers, no splines and no era seams.
+One anchor year (2025), independent drivers, no splines and no era seams.
 
     length(cat,t) = baseline_2025 x architecture_state_factor x variability
-    ADAS length   = sensor_count(autonomy_level) x metres_per_sensor
+    ADAS length   = sensor_count(hardware_tier) x scenario_mult x metres_per_sensor
     cu_per_m(t)   = gauge x 8.96 x (1 - 0.425 if 800V)          [HV only]
     Cu (kg)       = sum(length x cu_per_m) / 1000
 
-| Driver | States | Affects |
-|---|---|---|
-| Architecture | Conventional / Transitional / SDV_Zonal | LV + signal LENGTH |
-| Voltage | 400V / 800V | HV Cu-per-METRE |
-| Autonomy | L0 … L5 | ADAS + sensor LENGTH, via sensor counts |
+| Driver | States | Affects | Source |
+|---|---|---|---|
+| Architecture | Conventional / Transitional / SDV_Zonal | LV + signal LENGTH | `18_` |
+| Voltage | 400V / 800V | HV Cu-per-METRE | `18_` |
+| **A — hardware tier** | **H0 … H4** | ADAS + sensor LENGTH, via sensor counts | `19_` |
+| **B — lidar** | equipped / not, lag sampled | lidar count only | `19_` |
+| **C — scenario** | S1 / S2 / S3, post-2040 | multiplier on all sensor counts | `19_` |
 
 Independent, so architecture shortens wiring while sensors lengthen it. That is
 why CD flattens near 1,750 m and EF near 2,850 m after 2040 rather than falling.
+
+**Why tier and not SAE level.** A car does not grow a wire when a regulator
+grants liability transfer. Volvo's EX90 carries 31 sensors and is certified L2;
+BMW's i7 carried 25 and was certified L3. Certified L3 is being *withdrawn* in
+Europe (Mercedes paused Drive Pilot, BMW discontinued Personal Pilot L3) while
+sensor content keeps rising — so a level-keyed model gets the near-term trend
+backwards. Full argument in `AUTONOMY_LEVELS_VS_HARDWARE.md`.
+
+The old autonomy driver still exists behind `USE_TIER_AXIS = False`, for
+comparison runs only. It is not maintained.
 
 **Copper is never read as a given.** Always length × gauge × density. Both
 sources' direct copper figures are unreliable — the source report's own
@@ -119,6 +144,15 @@ Monte Carlo sampling noise on P2.5 is ~11.6% at 3,000 draws and ~1.4% at
 
 ---
 
+7. **Validation is now executed, not just written down.** `validate()` runs at
+   the end of a full run and checks the targets in `19_` sheet `Validation`.
+   Tolerances come from sheet `Uncertainty` and are deliberately no tighter than
+   the sources agree with each other — V1 is ±3%, not ±1%, because the source
+   report disagrees with *itself* by 2.8% on EF length. A report drifting from
+   the code is now a test failure. **Nothing below ~3% is signal.**
+
+---
+
 ## 6. LABEL COLLISION — read before touching `18_`
 
 `BEV_Automation_Adoption_Report_2020_2050.md` names its three **scenarios**
@@ -150,46 +184,76 @@ independent hand-calculation exactly, so it is a finding, not a bug.
 | To change | Edit |
 |---|---|
 | When a segment adopts SDV / 800V | `18_` sheet `Penetration`, yellow cells |
-| Autonomy scenario | `18_` sheet `Conversion` (four levers) |
-| Autonomy override | `18_` sheet `Autonomy_Derived`, green columns |
-| Which scenario is Min/Mode/Max | `18_` sheet `Conversion`, rows 18–20 |
-| Sensors per autonomy level | `18_` sheet `Sensors_per_Level` |
-| Metres per sensor | `18_` sheet `Metres_per_Sensor` |
+| **Which ADAS scenario is active** | **`19_` sheet `Scenarios`, cell B5** — `SAMPLE` (default) / `S1` / `S2` / `S3` |
+| **Tier adoption by segment and year** | **`19_` sheet `Tier_Shares`** |
+| **Sensor counts per tier** | **`19_` sheet `Tiers`** |
+| **Lidar path and band** | **`19_` sheet `Lidar`** |
+| **China→Europe lidar lag** | **`19_` sheet `Parameters`** |
+| **Scenario multipliers / weights** | **`19_` sheet `Scenarios`** |
+| Metres per sensor | `18_` sheet `Metres_per_Sensor` (unchanged) |
 | Conductor gauges, 2025 lengths | `17_` sheet `Baseline_2025` |
 | SDV mechanism-vs-totals conflict | `17_` sheet `SDV_Depth` |
 | Iterations / memory / plot years | `BevWiring.py` section 0 |
+| ~~Sensors per autonomy level~~ | ~~`18_` sheet `Sensors_per_Level`~~ — **no longer read** |
+| ~~Autonomy scenario / override~~ | ~~`18_` sheets `Conversion`, `Autonomy_Derived`~~ — **no longer drive ADAS** |
 
-Yellow = editable. Orange = assumption with no source. Green = override.
+Yellow = editable. Orange = assumption with no source. Green = fact / override.
+
+`19_` is **generated** from
+`Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md` by
+`Data/make_19_adas_sensor_adoption.py`. Editing the workbook works, but the next
+regeneration overwrites it — for a permanent change, edit the report and the
+generator together. Anchor years are read through PCHIP, so adding or deleting
+year columns needs no code change.
 
 ---
 
 ## 9. NEXT: the sensor model
 
-`ADAS length = sensor_count(autonomy_level) × metres_per_sensor`. The counts
-come from `18_` sheet `Sensors_per_Level`, **which is entirely unsourced** and
-now supplies roughly a quarter of the 2070 answer:
+**This is now the largest outstanding item.** `BevWiring.py` has been rewired
+onto the hardware-tier axis; `SensorNumbersMC.py` has **not**. Until it is, the
+two models sit on different axes — precisely the divergence the coupling exists
+to prevent.
 
-| share of total length from that sheet | 2025 | 2040 | 2070 |
+The ADAS block still supplies roughly a quarter of the 2070 answer:
+
+| share of total length from the sensor block | 2025 | 2040 | 2070 |
 |---|---|---|---|
 | AB | 6% | 15% | 22% |
 | CD | 9% | 19% | 24% |
 | EF | 11% | 19% | 21% |
 
-**The spec is `SensorNumbersMC/SENSOR_WIRING_INTERFACE.md`. Read it first.**
+**The instruction set is `Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md`
+§6**, with the numbers in `19_` sheet `Presence_per_Tier` — 12 ADAS components
+× tiers H0–H4, already written and validated but **not yet consumed by any
+code**. `SensorNumbersMC/SENSOR_WIRING_INTERFACE.md` still holds the useful
+background; read "level" as "tier" throughout it.
 
-Headline: the sensor model's existing **Std / Opt / Rare presence factor is
-already a penetration share**, so it only has to become a function of year and
-autonomy level — not a rewrite. Two warnings from that document:
+The fix stays small because the sensor model's **Std / Opt / Rare presence
+factor is already a penetration share**. It only needs one more index:
 
-- **Do not recompute the autonomy mix.** Read the same source the wiring model
-  reads, or the two will silently diverge — the exact failure this coupling
-  exists to prevent.
-- **`06_VehicleSensorNumbers.xlsx` has no radar and no lidar rows at all**, and
-  no time or level dimension. Both must be added.
+    presence(component, segment, year)
+        = Σ_tier  share(tier, segment, year) × presence(component | tier)
+
+Three warnings:
+
+- **Do not recompute the tier shares.** Read `19_` sheet `Tier_Shares`, the same
+  source `BevWiring.py` reads. Computing them twice guarantees divergence.
+- **`01_` EF lidar presence is wrong** — labelled `Opt` (0.50) against a real
+  2025 value near 0.01. A 50× gap, far outside every spread recorded in `19_`
+  sheet `Uncertainty`. It bites the moment this model is rewired.
+- **`06_` camera counts are low** (EF max 5 against 6–10 measured) and
+  **ultrasonics may be double-counted** (under both *Ultrasonic sensors* and
+  *Parking assist ECU*, 8–12 each, against 12–16 measured).
+
+`06_` does **have** radar and lidar rows — the earlier claim that it did not was
+a naming mismatch and has been corrected in both that spec and `18_` sheet
+`Notes`. Its EF radar (5) and lidar (0–1) counts match the measured EQS, i7 and
+EX90 exactly.
 
 Preserve the cross-check: `17_` ÷ `06_` gives 28 / 25 / 31 m per camera across
 AB / CD / EF. Two independently built datasets agreeing is real corroboration.
-Re-run it at 2025 after any change.
+Re-run it at 2025 after any change (validation V2).
 
 ---
 
@@ -262,22 +326,51 @@ generalises to the sensor-strategy problem, which is where the real gap is.
 
 ## 11. Open items
 
-1. **`Sensors_per_Level` unsourced** — see section 9. Biggest gap.
+1. **`SensorNumbersMC.py` not yet rewired** — see section 9. **Biggest gap.**
+   `19_` sheet `Presence_per_Tier` is written and validated but consumed by
+   nothing, so the two models are on different axes.
 2. **No sensor-strategy dimension** (vision-only vs lidar-heavy) — see
-   section 10. The substitution the model cannot express at all.
+   section 10. The substitution the model cannot express at all. Driver B now
+   makes lidar an explicit driver, which is a partial answer, but the
+   *either/or* structure is still missing.
 3. **SDV timing not yet shifted +3.6 y** to match S&P (zonal 2% in 2022 → 38%
    in 2034). Agreed in principle, not applied to `18_`.
-4. **`Fleet_to_NewSales_lead_y = 7`** pushes L4/L5 above the automation
-   report's own "private L4/L5 < 5% through 2035" constraint (EF ~22%). Setting
-   it to ~3 roughly restores consistency. Measured effect on totals is only
-   ~3%, so it is less urgent than it sounds.
-5. **Flat after ~2050**, because every share in `18_` saturates. Not a model
-   artefact — a claim that no further architectural change happens.
-6. **EF +100 m.** The report's EF length column sums to 3,646 against its own
+4. ~~**`Fleet_to_NewSales_lead_y = 7`** pushes L4/L5 above the report's own
+   "private L4/L5 < 5% through 2035" constraint.~~ **RESOLVED / RESTATED
+   2026-08-05.** The old framing was wrong twice over. It called for lowering
+   the lever, but (a) the `Notes` sheet in `18_` records *your* input as
+   *more* aggressive than the model — EF L5 ~20% by 2035 against the model's
+   2.4% — so lowering it moved *away* from the specification; and (b) no
+   setting of that lever satisfies the constraint anyway, since with
+   `Private_lag_y = 5` and `Offset_EF_y = −5`, `net_shift(EF)` reduces to
+   `−lead`, requiring a *negative* lead. The real problem was neither the lever
+   nor the constraint but **the axis**: certification level was never the right
+   key for sensor content. Superseded by the tier axis; the conversion levers
+   no longer drive ADAS at all. Kept here because the reasoning is worth not
+   losing.
+5. **Flat after ~2050** for architecture, because every share in `18_`
+   saturates. Not a model artefact — a claim that no further architectural
+   change happens. Driver C now supplies post-2040 *sensor* growth, so the
+   totals are no longer flat, but the architecture side still is.
+6. **Driver C multipliers (1.0 / 1.4 / 2.0) are uncalibrated** and are now the
+   largest single lever on the 2070 answer. The two mechanisms behind them —
+   cost decline with volume, safety redundancy — are observable; the values are
+   not sourced. See the report §9.2.
+7. **Driver A's low end may be too aggressive.** Its first external check
+   (Yano Research units by level) agrees within 1.10× at the top of the ladder
+   in 2035 but disagrees by 3.3× at the bottom in 2025. Part of that is
+   BEV-vs-all-powertrain scope; probably not all. Report §9.0.
+8. **EF +100 m.** The report's EF length column sums to 3,646 against its own
    stated 3,546. Patched by `SEGMENT_LENGTH_CALIBRATION`; bad row unfound.
-7. **Radar and lidar metres-per-sensor are assumptions** (`06_` has neither).
-8. **Taxonomy.** Output uses the report's 28 category codes, not the old 28
-   wire types; not 1:1 (`17_` sheet `Mapping`).
-9. **Name collision inside the repo.** `Archive/BevWiring.py` is v3;
-   `Wiring/BevWiring.py` is current. Different directories, but do not move
-   files between them casually.
+   Note this 2.8% self-inconsistency is what sets the **noise floor for the
+   whole chain** — see `19_` sheet `Uncertainty`.
+9. **Radar and lidar METRES-PER-SENSOR are assumptions.** (Corrected
+   2026-08-05: this item used to add "`06_` has neither", meaning neither radar
+   nor lidar rows. That was wrong — `06_` has both; it was a naming mismatch.
+   The metres-per-sensor figures in `18_` remain assumptions, which is the part
+   that still stands.)
+10. **Taxonomy.** Output uses the report's 28 category codes, not the old 28
+    wire types; not 1:1 (`17_` sheet `Mapping`).
+11. **Name collision inside the repo.** `Archive/BevWiring.py` is v3;
+    `Wiring/BevWiring.py` is current. Different directories, but do not move
+    files between them casually.

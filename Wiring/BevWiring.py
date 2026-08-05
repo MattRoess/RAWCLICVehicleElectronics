@@ -86,6 +86,26 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR.parent / "Data"
 BASELINE_FILE = DATA_DIR / "17_BEV_wiring_baseline_2025.xlsx"
 PENETRATION_FILE = DATA_DIR / "18_BEV_technology_penetration.xlsx"
+ADAS_FILE = DATA_DIR / "19_ADAS_sensor_adoption.xlsx"
+
+# Sensor axis | UNIT: none.
+# True  = ADAS content is driven by the HARDWARE TIER axis in 19_ (drivers A/B/C).
+# False = the old path: SAE certification level x 18_ Sensors_per_Level.
+# WHY the change: wiring follows installed hardware, not the certificate. Volvo's
+# EX90 carries 31 sensors and is certified L2; BMW's i7 carried 25 and was
+# certified L3. Keying sensor count on the certificate gets the near-term trend
+# backwards, because certified L3 is being WITHDRAWN in Europe while sensor
+# content keeps rising. Full argument: Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md
+# Keep False available for diffing old against new; it is not maintained.
+USE_TIER_AXIS = True
+
+# Driver C scenario selection | UNIT: none.
+# None  = obey the Active_Scenario cell in 19_ sheet Scenarios (normal use).
+# "SAMPLE" / "S1" / "S2" / "S3" = override it, for scripted sweeps.
+# SAMPLE draws a scenario per iteration by weight, so ONE run's band contains
+# all three. Pinning narrows the band by discarding that spread -- use pinned
+# runs to understand the scenarios, quote SAMPLE.
+SCENARIO_OVERRIDE = None
 
 OUT_DIR = SCRIPT_DIR / "outputs"
 OUT_SUBDIRS = {"data": OUT_DIR / "data", "plots": OUT_DIR / "plots"}
@@ -182,6 +202,18 @@ COL_LO, COL_HI = (f"P{p:g}".replace(".", "_") for p in STAT_PCTS)
 LEVELS = ["L0", "L1", "L2", "L3", "L4", "L5"]
 ARCH_STATES = ["Conventional", "Transitional", "SDV_Zonal"]
 
+# ADAS hardware tiers | UNIT: none. H3/H4 are anchored on measured cars
+# (Mercedes EQS, BMW i7, Volvo EX90); H0 is pinned by EU GSR-2; H1/H2 are
+# assumptions. See 19_ sheet Tiers and report section 3.
+TIERS = ["H0", "H1", "H2", "H3", "H4"]
+SENSOR_TYPES = ["camera", "radar", "lidar", "ultrasonic"]
+
+# Year from which Driver C scenarios may differ | UNIT: calendar year (CE).
+# All scenarios are exactly 1.0 at and before this year by construction, so the
+# scenario driver cannot perturb any year for which sourced data exists.
+# Enforced by validation V9.
+SCENARIO_START_YEAR = 2040
+
 
 # --------------------------------------------------------------------------
 # 1. INPUTS
@@ -199,8 +231,17 @@ class Inputs:
     arch: dict              # (segment, state) -> callable(year)->share
     volt: dict              # segment -> callable(year)->share of 800V
     autonomy: dict          # (segment, band) -> (n_levels, n_years) shares
-    sensors: pd.DataFrame   # Level, Sensor_Type, Count_Min/Mode/Max
+    sensors: pd.DataFrame   # Level, Sensor_Type, Count_Min/Mode/Max  (old axis)
     metres: pd.DataFrame    # Sensor_Type, Segment, m_Min/Mode/Max
+    # --- tier axis, from 19_. None when USE_TIER_AXIS is False.
+    tier_shares: dict = None    # segment -> (n_tiers, n_years) shares, cols sum to 1
+    tier_counts: dict = None    # (tier, sensor_type) -> (min, mode, max) per vehicle
+    lidar: np.ndarray = None    # (3, n_years) Min/Mode/Max equipped share, Europe
+    lidar_lag: tuple = None     # (mean_y, sd_y) China->Europe lag, SAMPLED
+    scen_mult: dict = None      # scenario -> (n_years) multiplier on sensor counts
+    scen_w: np.ndarray = None   # (n_scen,) weights, sum 1
+    scen_names: list = None
+    scen_active: str = None     # "SAMPLE" or one of scen_names
 
 
 def _monotone_curve(years, anchor_years, anchor_vals):
@@ -220,6 +261,101 @@ def _monotone_curve(years, anchor_years, anchor_vals):
     f = PchipInterpolator(x, y, extrapolate=False)
     out = f(np.clip(years, x[0], x[-1]))
     return np.clip(np.nan_to_num(out), 0.0, 1.0)
+
+
+def _load_tier_axis(years) -> dict:
+    """Read drivers A, B and C from 19_ADAS_sensor_adoption.xlsx.
+
+    A  tier shares       sheet Tier_Shares       -> (n_tiers, n_years) per segment
+    B  lidar penetration sheet Lidar             -> (3, n_years) Min/Mode/Max
+    C  scenario          sheet Scenarios         -> multiplier curve per scenario
+
+    Every number traces to Data/Sources/ADAS_Sensor_Adoption_Report_2025_2070.md;
+    the sheets carry the section references. Anchors are read through the same
+    PCHIP curve as every other share table here, so adding or deleting anchor
+    years in Excel needs no code change.
+    """
+    if not ADAS_FILE.exists():
+        raise FileNotFoundError(
+            f"ADAS adoption workbook not found: {ADAS_FILE}\n"
+            f"Generate it with: python3 Data/make_19_adas_sensor_adoption.py")
+
+    # ---- A: tier shares, renormalised so columns sum to 1 after interpolation
+    ts = pd.read_excel(ADAS_FILE, sheet_name="Tier_Shares", header=3)
+    ts = ts[ts["Segment"].notna()]
+    tier_shares = {}
+    for seg in BASE_SEGMENTS:
+        d = ts[ts.Segment == seg].sort_values("Year")
+        m = np.vstack([_monotone_curve(years, d.Year.to_numpy(float),
+                                       d[t].to_numpy(float)) for t in TIERS])
+        tier_shares[seg] = m / np.maximum(m.sum(axis=0, keepdims=True), 1e-12)
+
+    # ---- A: sensor counts per tier
+    td = pd.read_excel(ADAS_FILE, sheet_name="Tiers", header=3)
+    td = td[td["Tier"].notna()]
+    col = {"camera": ("Cam_min", "Cam_max"), "radar": ("Radar_min", "Radar_max"),
+           "ultrasonic": ("Ultra_min", "Ultra_max"),
+           "lidar": ("Lidar_min", "Lidar_max")}
+    tier_counts = {}
+    for _, r in td.iterrows():
+        for st, (lo_c, hi_c) in col.items():
+            lo, hi = float(r[lo_c]), float(r[hi_c])
+            tier_counts[(r["Tier"], st)] = (lo, (lo + hi) / 2.0,
+                                            max(hi, lo + 1e-9))
+
+    # ---- B: lidar
+    ld = pd.read_excel(ADAS_FILE, sheet_name="Lidar", header=3)
+    ld = ld[ld["Year"].notna()].sort_values("Year")
+    yr = ld.Year.to_numpy(float)
+    lidar = np.vstack([_monotone_curve(years, yr, ld[c].to_numpy(float))
+                       for c in ("Share_Min", "Share_Mode", "Share_Max")])
+
+    pr = pd.read_excel(ADAS_FILE, sheet_name="Parameters", header=2)
+    pr = pr[pr["Parameter"].notna()].set_index("Parameter")["Value"]
+    lidar_lag = (float(pr["Lidar_Europe_Lag_Y_Mean"]),
+                 float(pr["Lidar_Europe_Lag_Y_SD"]))
+
+    # ---- C: scenarios
+    sc = pd.read_excel(ADAS_FILE, sheet_name="Scenarios", header=7)
+    anchor_cols = [c for c in sc.columns
+                   if isinstance(c, (int, float)) or str(c).strip().isdigit()]
+    anchor_yrs = np.array([float(str(c).strip()) for c in anchor_cols])
+    # Keep only rows that are actually scenario data. Filtering on a single
+    # column is not enough: the sheet carries free-text notes below the table,
+    # and those land in whichever column they start in.
+    sc = sc[sc["Scenario"].notna() & sc["Weight"].notna()
+            & sc[anchor_cols].notna().all(axis=1)]
+    if sc.empty:
+        raise ValueError(f"No scenario rows found in {ADAS_FILE} sheet Scenarios")
+    scen_names = sc["Scenario"].tolist()
+    scen_mult = {}
+    for _, r in sc.iterrows():
+        vals = np.array([float(r[c]) for c in anchor_cols])
+        # PCHIP would clip to [0,1]; multipliers exceed 1, so interpolate here
+        # and hold the end values flat outside the anchor range.
+        from scipy.interpolate import PchipInterpolator
+        f = PchipInterpolator(anchor_yrs, vals, extrapolate=False)
+        out = f(np.clip(years, anchor_yrs[0], anchor_yrs[-1]))
+        out = np.nan_to_num(out, nan=vals[0])
+        # identical to 1.0 at and before SCENARIO_START_YEAR, by construction
+        out = np.where(years <= SCENARIO_START_YEAR, 1.0, out)
+        scen_mult[r["Scenario"]] = np.maximum(out, 0.0)
+    w = sc["Weight"].to_numpy(float)
+    scen_w = w / max(w.sum(), 1e-12)
+
+    active = SCENARIO_OVERRIDE
+    if active is None:
+        wb = pd.read_excel(ADAS_FILE, sheet_name="Scenarios", header=None)
+        active = str(wb.iloc[4, 1]).strip()      # cell B5
+    if active not in (["SAMPLE"] + scen_names):
+        raise ValueError(
+            f"Active_Scenario is {active!r}; expected 'SAMPLE' or one of "
+            f"{scen_names}. Set it in 19_ sheet Scenarios cell B5, or via "
+            f"SCENARIO_OVERRIDE in section 0.")
+
+    return dict(tier_shares=tier_shares, tier_counts=tier_counts, lidar=lidar,
+                lidar_lag=lidar_lag, scen_mult=scen_mult, scen_w=scen_w,
+                scen_names=scen_names, scen_active=active)
 
 
 def load_inputs(years) -> Inputs:
@@ -256,6 +392,8 @@ def load_inputs(years) -> Inputs:
     metres = pd.read_excel(PENETRATION_FILE, sheet_name="Metres_per_Sensor", header=4)
     metres = metres[metres["Sensor_Type"].notna()]
 
+    tier = _load_tier_axis(years) if USE_TIER_AXIS else {}
+
     return Inputs(
         codes=b["Code"].tolist(), groups=b["Functional Group"].tolist(),
         gauge_min=b["Gauge_Min_mm2"].to_numpy(float),
@@ -263,7 +401,7 @@ def load_inputs(years) -> Inputs:
         sdv_factor=b["SDV_Base_Length_Factor"].to_numpy(float),
         length={s: b[f"{s}_Length_m"].to_numpy(float) for s in BASE_SEGMENTS},
         depth_tri=depth_tri, arch=arch, volt=volt, autonomy=autonomy,
-        sensors=sensors, metres=metres,
+        sensors=sensors, metres=metres, **tier,
     )
 
 
@@ -461,15 +599,18 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
                   * fac * var)
 
         # ---- ADAS/sensor categories: driven by SENSOR COUNT, not architecture
-        cnt = np.zeros((n_iter, n_years))
-        for si, stype in enumerate(sensor_types):
-            per_level = np.array([
-                rng.triangular(*_tri(sens, lv, stype), size=n_iter) for lv in LEVELS
-            ])                                                        # (6, n_iter)
-            drawn = np.take_along_axis(per_level.T[:, :, None].repeat(n_years, axis=2),
-                                       st_aut[:, None, :], axis=1)[:, 0, :]
-            m = rng.triangular(*_tri_m(met, stype, seg), size=n_iter)[:, None]
-            cnt += drawn * m                                          # metres
+        if inp.tier_shares is not None:
+            cnt = _adas_metres_tier(rng, inp, seg, years, n_iter, met)
+        else:
+            cnt = np.zeros((n_iter, n_years))
+            for si, stype in enumerate(sensor_types):
+                per_level = np.array([
+                    rng.triangular(*_tri(sens, lv, stype), size=n_iter) for lv in LEVELS
+                ])                                                    # (6, n_iter)
+                drawn = np.take_along_axis(per_level.T[:, :, None].repeat(n_years, axis=2),
+                                           st_aut[:, None, :], axis=1)[:, 0, :]
+                m = rng.triangular(*_tri_m(met, stype, seg), size=n_iter)[:, None]
+                cnt += drawn * m                                      # metres
         # scale so the ADAS block reproduces its 2025 baseline total
         adas_base = inp.length[seg][is_adas].sum() * SEGMENT_LENGTH_CALIBRATION[seg]
         # ENSEMBLE mean, not per-iteration: dividing each iteration by its own
@@ -514,6 +655,96 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
 
     return MCResult(years, BASE_SEGMENTS + list(J_SUFFIX.values()),
                     inp.codes, inp.groups, per_category, totals, diag)
+
+
+def _adas_metres_tier(rng, inp, seg, years, n_iter, met):
+    """ADAS wire metres per vehicle, from the hardware-tier axis (drivers A/B/C).
+
+    Args:
+        rng:    generator, shared with the caller so the whole run stays
+                reproducible from one seed.
+        inp:    Inputs, carrying the three drivers loaded from 19_.
+        seg:    "AB" | "CD" | "EF".
+        years:  (n_years,) UNIT: calendar years.
+        n_iter: iterations.
+        met:    Metres_per_Sensor, indexed (Sensor_Type, Segment). REUSED
+                UNCHANGED from 18_ -- the tier axis changes how many sensors a
+                car has, not how much wire each one needs.
+
+    Returns:
+        (n_iter, n_years) metres of ADAS wiring, before the 2025 rescale the
+        caller applies.
+
+    Three drivers, sampled independently per iteration:
+
+      A  TIER. One uniform per iteration held across years, plus that
+         iteration's own timing offset -- same comonotonic scheme as the
+         architecture driver, so a vehicle is one hardware tier and not a blend.
+
+      B  LIDAR. Separate, because lidar tracks cost and Chinese competitive
+         pressure rather than tier or certification. Band membership is drawn
+         per iteration (Min/Mode/Max = radar-substitutes / central /
+         cost-collapse), and the China->Europe LAG IS SAMPLED, not fixed, so
+         "China leads and Europe follows" is a testable hypothesis rather than
+         a baked-in assumption. Lidar count is then tier count x equipped.
+
+      C  SCENARIO. Post-2040 multiplier on every sensor count. Either drawn per
+         iteration by weight (Active_Scenario = SAMPLE, so one run's band spans
+         all three) or pinned. Identical to 1.0 at and before
+         SCENARIO_START_YEAR by construction.
+    """
+    n_years = len(years)
+
+    # --- A: discrete tier, comonotonic across years, with per-iteration timing
+    shares = inp.tier_shares[seg]                                  # (n_tiers, n_years)
+    d_tier = rng.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=n_iter)
+    sh_i = _shift_shares(shares, years, d_tier)                    # (n_tiers,n_iter,n_years)
+    u_tier = rng.random(n_iter)
+    st_tier = (u_tier[None, :, None] > np.cumsum(sh_i, axis=0)).sum(axis=0)
+
+    # --- B: lidar equipped, per iteration and year
+    w = rng.random(n_iter)[:, None]
+    band = np.where(w < 1 / 3, inp.lidar[0][None, :],
+                    np.where(w < 2 / 3, inp.lidar[1][None, :], inp.lidar[2][None, :]))
+    lag_mean, lag_sd = inp.lidar_lag
+    # the table already embeds the mean lag, so shift by the DEVIATION from it
+    d_lidar = rng.normal(lag_mean, lag_sd, size=n_iter) - lag_mean
+    lid_share = np.empty((n_iter, n_years))
+    for i in range(n_iter):
+        lid_share[i] = np.interp(years - d_lidar[i], years, band[i])
+    lid_share = np.clip(lid_share, 0.0, 1.0)
+    equipped = (rng.random(n_iter)[:, None] < lid_share).astype(float)
+
+    # --- C: scenario multiplier
+    if inp.scen_active == "SAMPLE":
+        pick = rng.choice(len(inp.scen_names), size=n_iter, p=inp.scen_w)
+    else:
+        pick = np.full(n_iter, inp.scen_names.index(inp.scen_active))
+    mult_tab = np.vstack([inp.scen_mult[s] for s in inp.scen_names])  # (n_scen,n_years)
+    mult = mult_tab[pick]                                             # (n_iter,n_years)
+
+    # --- compose
+    cnt = np.zeros((n_iter, n_years))
+    for stype in SENSOR_TYPES:
+        per_tier = np.array([
+            rng.triangular(*_tri_tier(inp.tier_counts, t, stype), size=n_iter)
+            for t in TIERS
+        ])                                                            # (n_tiers,n_iter)
+        drawn = np.take_along_axis(
+            per_tier.T[:, :, None].repeat(n_years, axis=2),
+            st_tier[:, None, :], axis=1)[:, 0, :]                      # (n_iter,n_years)
+        if stype == "lidar":
+            drawn = drawn * equipped
+        m = rng.triangular(*_tri_m(met, stype, seg), size=n_iter)[:, None]
+        cnt += drawn * mult * m
+    return cnt
+
+
+def _tri_tier(counts, tier, stype):
+    """(min, mode, max) sensor count for a tier. Degenerate triples are widened
+    by a hair so rng.triangular does not divide by a zero span."""
+    lo, mo, hi = counts.get((tier, stype), (0.0, 0.0, 1e-9))
+    return (lo, min(max(mo, lo), hi), max(hi, lo + 1e-9))
 
 
 def _tri(sens, level, stype):
@@ -910,13 +1141,115 @@ def plot_histograms_groups(accs, years, keys, segment, metric, year, out_path):
 
 
 # --------------------------------------------------------------------------
+# 5b. VALIDATION
+#
+#     The targets in 19_ sheet Validation, executed. The point is that a report
+#     drifting away from the code becomes a TEST FAILURE rather than something
+#     discovered six months later.
+#
+#     Tolerances come from the Uncertainty sheet and are deliberately no tighter
+#     than the sources agree with each other. A single source in this chain
+#     disagrees with ITSELF by ~3% (the EF row sum, 3646 vs a stated 3546), so
+#     demanding better than that of the model would be demanding it reproduce
+#     noise.
+# --------------------------------------------------------------------------
+
+def validate(result, inp, verbose=True) -> list:
+    """Check the model against the report's validation targets.
+
+    Returns a list of (id, name, got, want, tol, passed). Raises nothing --
+    the caller decides whether a failure is fatal, because V1 and V4 legitimately
+    wobble at low iteration counts.
+    """
+    years = result.years
+    iy = {int(y): i for i, y in enumerate(years)}
+    i25 = iy[BASE_YEAR]
+    out = []
+
+    def chk(vid, name, got, want, tol, rel=False):
+        dev = abs(got - want) / abs(want) if rel else abs(got - want)
+        out.append((vid, name, got, want, tol, dev <= tol))
+
+    # V1 -- 2025 length anchors
+    for seg, want in (("AB", 1392.0), ("CD", 2486.0), ("EF", 3546.0)):
+        got = float(result.totals[(METRIC_LENGTH, seg)][:, i25].mean())
+        chk("V1", f"2025 length {seg}", got, want, 0.03, rel=True)
+
+    # V6 -- tier shares sum to 1
+    if inp.tier_shares is not None:
+        dev = max(float(np.abs(inp.tier_shares[s].sum(axis=0) - 1).max())
+                  for s in BASE_SEGMENTS)
+        chk("V6", "tier shares sum to 1", dev, 0.0, 1e-9)
+
+    # V8 -- ADAS share of total length at 2025
+    ia = [i for i, g in enumerate(result.groups) if g == ADAS_GROUP]
+    for seg, want in (("AB", 6.0), ("CD", 9.0), ("EF", 11.0)):
+        a = result.per_category[(METRIC_LENGTH, seg)][:, ia, :].sum(axis=1)[:, i25].mean()
+        t = result.totals[(METRIC_LENGTH, seg)][:, i25].mean()
+        chk("V8", f"ADAS share {seg} %", 100.0 * a / t, want, 3.0)
+
+    # V9 -- Driver C is inert at and before SCENARIO_START_YEAR
+    if inp.scen_mult is not None:
+        i40 = iy.get(SCENARIO_START_YEAR)
+        if i40 is not None:
+            dev = max(abs(float(inp.scen_mult[s][i40]) - 1.0) for s in inp.scen_names)
+            chk("V9", f"scenario multiplier at {SCENARIO_START_YEAR}", dev, 0.0, 1e-9)
+
+    # V10 -- scenario weights sum to 1
+    if inp.scen_w is not None:
+        chk("V10", "scenario weights sum", float(inp.scen_w.sum()), 1.0, 1e-9)
+
+    if verbose:
+        print("\nValidation (targets: 19_ sheet Validation; tolerances from "
+              "sheet Uncertainty)")
+        for vid, name, got, want, tol, ok in out:
+            mark = "ok  " if ok else "FAIL"
+            print(f"  [{mark}] {vid:<4} {name:<26} got {got:>10.4f}   "
+                  f"want {want:>8.3f}  tol {tol:g}")
+        bad = [o for o in out if not o[5]]
+        print(f"  {len(out) - len(bad)}/{len(out)} passed"
+              + (f"  --  FAILED: {', '.join(o[0] + ' ' + o[1] for o in bad)}"
+                 if bad else ""))
+    return out
+
+
+# --------------------------------------------------------------------------
 # 6. MAIN
 # --------------------------------------------------------------------------
 
+def _suffix() -> str:
+    """Output filename suffix. Empty for SAMPLE, so existing filenames are
+    unchanged; '_S2' etc. when pinned, so scenario runs cannot silently
+    overwrite one another."""
+    if not USE_TIER_AXIS:
+        return "_levelaxis"
+    act = SCENARIO_OVERRIDE
+    if act is None:
+        try:
+            wb = pd.read_excel(ADAS_FILE, sheet_name="Scenarios", header=None)
+            act = str(wb.iloc[4, 1]).strip()
+        except Exception:
+            act = "SAMPLE"
+    return "" if act == "SAMPLE" else f"_{act}"
+
+
 if __name__ == "__main__":
+    SFX = _suffix()
+    if SFX:
+        OUT_SUBDIRS = {"data": OUT_DIR / f"data{SFX}", "plots": OUT_DIR / f"plots{SFX}"}
+        for _p in OUT_SUBDIRS.values():
+            _p.mkdir(parents=True, exist_ok=True)
+
     print("BEV wiring -- state-based, sensor-coupled")
     print(f"  baseline     : {BASELINE_FILE.name}")
     print(f"  penetration  : {PENETRATION_FILE.name}")
+    if USE_TIER_AXIS:
+        print(f"  ADAS adoption: {ADAS_FILE.name}  "
+              f"(hardware-tier axis, drivers A/B/C)")
+        print(f"  scenario     : {SFX[1:] if SFX else 'SAMPLE'}"
+              f"{'  (band spans S1/S2/S3)' if not SFX else '  (pinned)'}")
+    else:
+        print(f"  ADAS adoption: OLD SAE-level axis (18_ Sensors_per_Level)")
     print(f"  {START_YEAR}-{END_YEAR}, {N_ITER} iterations, seed {RANDOM_SEED}\n")
 
     # Statistics come from the CHUNKED path, so N_ITER can be raised to
@@ -924,12 +1257,12 @@ if __name__ == "__main__":
     # smaller full-draw run, because they need the raw arrays.
     accs, years, keys = run_accumulated(N_ITER, chunk=CHUNK_ITER)
     stats = build_stats_accumulated(accs, years, keys)
-    stats.to_csv(OUT_SUBDIRS["data"] / "bev_wiring_stats.csv", index=False)
-    print(f"  {len(stats):>7,} rows -> data/bev_wiring_stats.csv")
+    stats.to_csv(OUT_SUBDIRS["data"] / f"bev_wiring_stats{SFX}.csv", index=False)
+    print(f"  {len(stats):>7,} rows -> data{SFX}/bev_wiring_stats{SFX}.csv")
 
     hist = build_histograms(accs, years, keys)
-    hist.to_csv(OUT_SUBDIRS["data"] / "bev_wiring_histograms.csv", index=False)
-    print(f"  {len(hist):>7,} rows -> data/bev_wiring_histograms.csv "
+    hist.to_csv(OUT_SUBDIRS["data"] / f"bev_wiring_histograms{SFX}.csv", index=False)
+    print(f"  {len(hist):>7,} rows -> data{SFX}/bev_wiring_histograms{SFX}.csv "
           f"({len(keys)} series x {len(SNAPSHOT_YEARS)} snapshot years)")
 
     ov = sum(int(accs[k].over.sum() + accs[k].under.sum()) for k in keys)
@@ -968,3 +1301,5 @@ if __name__ == "__main__":
     print("\n  Report anchors (2025, per new vehicle):")
     print("    Length (m)  AB 1392   CD 2486   EF 3546")
     print("    Cu (kg)     AB  33.9  CD   60.3  EF  74.6")
+
+    validate(result, load_inputs(result.years))
