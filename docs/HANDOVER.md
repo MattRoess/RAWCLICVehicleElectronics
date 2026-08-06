@@ -1,7 +1,60 @@
 # Handover — BEV wiring and sensor models
 
-State as of **2026-08-05**. Written so this work can be picked up tomorrow, or
-by a different assistant, without reconstructing anything from conversation.
+State as of **2026-08-05, end of session**. Written so this work can be picked
+up on another machine, or by a different assistant, without reconstructing
+anything from conversation.
+
+---
+
+## PICK UP HERE
+
+### 1. FIRST: the work is NOT COMMITTED
+
+At the end of the session, `git status` showed **13 files changed or new**
+against commit `3425805`. Three of them **do not exist in git at all**:
+
+| Untracked — would be LOST | What it is |
+|---|---|
+| `Data/20_scenarios.xlsx` | **the project-wide scenario switch. `BevWiring.py` raises `FileNotFoundError` without it** |
+| `docs/SENSOR_MODEL_DESIGN.md` | the agreed design for the sensor work |
+| `tools/make_20_scenarios.py` | regenerates `20_` |
+
+Modified but uncommitted: `SensorNumbersMC/SensorNumbersMC.py` (steps 3–5, the
+whole sensor rewrite), `Wiring/BevWiring.py`, `Data/06_`, `Data/18_`,
+`Data/19_`, `tools/make_19_adas_sensor_adoption.py`, and four documents.
+
+**The repository lives in iCloud Drive, so files may sync to the other machine
+on their own — but do not rely on it.** Commit before switching:
+
+```bash
+git add -A && git commit -m "Sensor model: tier and voltage drivers, central scenarios"
+```
+
+### 2. THEN: verify the state on the new machine
+
+```bash
+python3 -c "import pandas,numpy,scipy,openpyxl,matplotlib; print('deps ok')"
+```
+
+```bash
+python3 Wiring/BevWiring.py
+```
+
+Expect **9/9 validation passed** and 2025 anchors near AB 1409 / CD 2478 /
+EF 3486.
+
+```bash
+python3 SensorNumbersMC/SensorNumbersMC.py
+```
+
+Expect **V11 PASSED, V12 PASSED (0.000e+00), V14 915/915, V13 21/36** — V13
+failing is the current known state, see §11.
+
+### 3. WHERE WE STOPPED
+
+Step 5 of 7 is **implemented and running**, but **not signed off**: V13 fails
+and four decisions are open. They are listed in §11 with a recommendation for
+each. Nothing should be built on top of step 5 until those are settled.
 
 ---
 
@@ -46,8 +99,9 @@ docs/          cross-cutting analysis, tracked
   ADAS_Sensor_Adoption_Report_2025_2070.md    the sensor evidence base
 tools/         generators, tracked
   make_19_adas_sensor_adoption.py             writes Data/19_
+  make_20_scenarios.py                        writes Data/20_
 Data/          MODEL INPUTS ONLY, tracked
-  01_ 03_ 04_ 05_ 06_ 07_ 10_ 17_ 18_ 19_ .xlsx
+  01_ 03_ 04_ 05_ 06_ 07_ 10_ 17_ 18_ 19_ 20_ .xlsx
   Sources/     third-party bulk -- IGNORED by git
 Wiring/        model + its own documents
   BevWiring.py, BevWiring_STATUS.md, IMPLEMENTATION_GUIDE.md,
@@ -160,8 +214,7 @@ python3 Wiring/BevWiring.py
 
 ~4 min at 200,000 iterations. Requires the `Data/` directory (§1).
 
-**Switching scenarios — one cell, no code editing:** `19_` sheet `Scenarios`,
-cell **B5**.
+**Switching scenarios — one cell, no code editing:** `20_` sheet `Control`, cell **B4**.
 
 | `Active_Scenario` | Behaviour |
 |---|---|

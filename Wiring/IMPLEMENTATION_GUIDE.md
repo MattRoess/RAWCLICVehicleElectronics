@@ -64,7 +64,7 @@ Unchanged: ~4 min at 200,000 iterations, same output paths, same filenames.
 
 ## 4. Switching scenarios
 
-**One cell: `19_` sheet `Scenarios`, cell B5.**
+**One cell: `20_` sheet `Control`, cell B4.**
 
 | `Active_Scenario` | What happens |
 |---|---|
@@ -144,8 +144,8 @@ fatal. V1 and V8 wobble at low iteration counts.
 | Sensor counts per tier | `19_` sheet `Tiers` |
 | Lidar path or its band | `19_` sheet `Lidar` |
 | China→Europe lidar lag | `19_` sheet `Parameters` |
-| Scenario multipliers or weights | `19_` sheet `Scenarios` |
-| Which scenario is active | `19_` sheet `Scenarios` cell **B5** |
+| Scenario multipliers or weights | `20_` sheet `Scenarios` (project-wide) |
+| Which scenario is active | `20_` sheet `Control` cell **B4** |
 | Metres per sensor | `18_` sheet `Metres_per_Sensor` (unchanged) |
 
 Anchor years are read through PCHIP, so **adding or deleting year columns and

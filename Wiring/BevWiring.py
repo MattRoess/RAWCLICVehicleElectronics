@@ -89,6 +89,12 @@ BASELINE_FILE = DATA_DIR / "17_BEV_wiring_baseline_2025.xlsx"
 PENETRATION_FILE = DATA_DIR / "18_BEV_technology_penetration.xlsx"
 ADAS_FILE = DATA_DIR / "19_ADAS_sensor_adoption.xlsx"
 
+# PROJECT-WIDE scenario selection, read by every model so that choosing a
+# scenario once applies it everywhere. It used to live in 19_ sheet Scenarios,
+# which is ADAS-specific and the wrong home for a project-wide switch.
+# One cell: sheet Control, Active_Scenario.
+SCENARIO_FILE = DATA_DIR / "20_scenarios.xlsx"
+
 # Sensor axis | UNIT: none.
 # True  = ADAS content is driven by the HARDWARE TIER axis in 19_ (drivers A/B/C).
 # False = the old path: SAE certification level x 18_ Sensors_per_Level.
@@ -101,7 +107,7 @@ ADAS_FILE = DATA_DIR / "19_ADAS_sensor_adoption.xlsx"
 USE_TIER_AXIS = True
 
 # Driver C scenario selection | UNIT: none.
-# None  = obey the Active_Scenario cell in 19_ sheet Scenarios (normal use).
+# None  = obey the Active_Scenario cell in 20_ sheet Control (normal use).
 # "SAMPLE" / "S1" / "S2" / "S3" = override it, for scripted sweeps.
 # SAMPLE draws a scenario per iteration by weight, so ONE run's band contains
 # all three. Pinning narrows the band by discarding that spread -- use pinned
@@ -264,6 +270,17 @@ def _monotone_curve(years, anchor_years, anchor_vals):
     return np.clip(np.nan_to_num(out), 0.0, 1.0)
 
 
+def _read_active_scenario() -> str:
+    """The project-wide scenario selection: 20_ sheet Control, cell B4.
+
+    One cell, read by every model, so that choosing a scenario once applies it
+    everywhere. Returns "SAMPLE" (draw per iteration by weight) or a scenario
+    name (pin every iteration to it).
+    """
+    wb = pd.read_excel(SCENARIO_FILE, sheet_name="Control", header=None)
+    return str(wb.iloc[3, 1]).strip()          # cell B4
+
+
 def _load_tier_axis(years) -> dict:
     """Read drivers A, B and C from 19_ADAS_sensor_adoption.xlsx.
 
@@ -316,8 +333,12 @@ def _load_tier_axis(years) -> dict:
     lidar_lag = (float(pr["Lidar_Europe_Lag_Y_Mean"]),
                  float(pr["Lidar_Europe_Lag_Y_SD"]))
 
-    # ---- C: scenarios
-    sc = pd.read_excel(ADAS_FILE, sheet_name="Scenarios", header=7)
+    # ---- C: scenarios, from the PROJECT-WIDE file
+    if not SCENARIO_FILE.exists():
+        raise FileNotFoundError(
+            f"Scenario workbook not found: {SCENARIO_FILE}\n"
+            f"Generate it with: python3 tools/make_20_scenarios.py")
+    sc = pd.read_excel(SCENARIO_FILE, sheet_name="Scenarios", header=3)
     anchor_cols = [c for c in sc.columns
                    if isinstance(c, (int, float)) or str(c).strip().isdigit()]
     anchor_yrs = np.array([float(str(c).strip()) for c in anchor_cols])
@@ -327,7 +348,7 @@ def _load_tier_axis(years) -> dict:
     sc = sc[sc["Scenario"].notna() & sc["Weight"].notna()
             & sc[anchor_cols].notna().all(axis=1)]
     if sc.empty:
-        raise ValueError(f"No scenario rows found in {ADAS_FILE} sheet Scenarios")
+        raise ValueError(f"No scenario rows found in {SCENARIO_FILE} sheet Scenarios")
     scen_names = sc["Scenario"].tolist()
     scen_mult = {}
     for _, r in sc.iterrows():
@@ -346,12 +367,11 @@ def _load_tier_axis(years) -> dict:
 
     active = SCENARIO_OVERRIDE
     if active is None:
-        wb = pd.read_excel(ADAS_FILE, sheet_name="Scenarios", header=None)
-        active = str(wb.iloc[4, 1]).strip()      # cell B5
+        active = _read_active_scenario()
     if active not in (["SAMPLE"] + scen_names):
         raise ValueError(
             f"Active_Scenario is {active!r}; expected 'SAMPLE' or one of "
-            f"{scen_names}. Set it in 19_ sheet Scenarios cell B5, or via "
+            f"{scen_names}. Set it in 20_ sheet Control cell B4, or via "
             f"SCENARIO_OVERRIDE in section 0.")
 
     return dict(tier_shares=tier_shares, tier_counts=tier_counts, lidar=lidar,
@@ -1227,8 +1247,7 @@ def _suffix() -> str:
     act = SCENARIO_OVERRIDE
     if act is None:
         try:
-            wb = pd.read_excel(ADAS_FILE, sheet_name="Scenarios", header=None)
-            act = str(wb.iloc[4, 1]).strip()
+            act = _read_active_scenario()
         except Exception:
             act = "SAMPLE"
     return "" if act == "SAMPLE" else f"_{act}"
