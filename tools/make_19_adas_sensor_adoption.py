@@ -91,8 +91,11 @@ LIDAR = [
 ]
 
 # --- report section 6.2 -----------------------------------------------------
-# LIDAR_DRIVER marks a cell governed by Driver B, not by tier.
-LD = "=Driver B"
+# Marks a cell governed by Driver B (the Lidar sheet), not by the tier mix.
+# NO LEADING "=" -- Excel reads that as a formula, openpyxl then writes a
+# formula cell with no cached value, and every reader gets NaN instead of the
+# marker. That silently produced NaN sensor counts once already.
+LD = "Driver B"
 PRESENCE = [
     ("Front ADAS camera", 1.00, 1.00, 1.00, 1.00, 1.00, "FACT", "GSR-2 mandated since Jul 2024"),
     ("Rear view camera", 0.50, 0.90, 1.00, 1.00, 1.00, "ASSUMPTION", ""),
@@ -436,85 +439,11 @@ def build():
     widths(ws, ("A", 5), ("B", 36), ("H", 15), ("I", 42),
            (get_column_letter(NOTE_COL), 70))
 
-    # ---------------- Scenarios ----------------
-    ws = wb.create_sheet("Scenarios")
-    ws["A1"] = "Driver C - post-2040 sensor-count scenarios - report S7.2 / S7.3"
-    ws["A1"].font = TITLE
-    ws["A2"] = (
-        "A wiring model needs to know HOW MANY sensors, not WHICH. The count "
-        "after 2040 is set by two observable mechanisms: (1) cost decline with "
-        "volume - by ~2040-45 sensor cost is negligible against vehicle price, "
-        "so cost stops constraining count; (2) safety redundancy - once cost "
-        "is not binding, required redundancy sets the count. A new sensor "
-        "modality, if one arrives, simply appears as 'more sensors'. This "
-        "REPLACES the withdrawn rule E4 ('no new modality before 2070'), which "
-        "assumed zero over 45 years against a historical rate of roughly one "
-        "new modality every 10-15 years.")
-    ws["A2"].alignment = WRAP
-
-    # --- the control block: the only cell most users touch
-    ws.cell(row=5, column=1, value="Active_Scenario").font = BOLD
-    c = ws.cell(row=5, column=2, value="SAMPLE")
-    c.fill = YELLOW
-    c.border = THIN
-    c.font = BOLD
-    ws.cell(row=5, column=3,
-            value="SAMPLE = draw a scenario per iteration by weight; ONE run, "
-                  "and the band contains all three. This is the honest default "
-                  "and is what should be quoted. "
-                  "S1 / S2 / S3 = pin every iteration to that scenario, for "
-                  "comparing them as separate answers; outputs then take a "
-                  "_S1 / _S2 / _S3 suffix so runs cannot overwrite each other. "
-                  "SCENARIO_OVERRIDE in BevWiring.py section 0 beats this cell, "
-                  "for scripted sweeps.").alignment = WRAP
-
-    # --- anchors
-    ws.cell(row=7, column=1, value="Multiplier anchors (PCHIP through these; "
-                                   "add or delete year columns freely)").font = BOLD
-    hdr = ["Scenario", "Name"] + [str(y) for y in SCENARIO_YEARS] + \
-          ["Weight", "Mechanism"]
-    for j, h in enumerate(hdr, start=1):
-        ws.cell(row=8, column=j, value=h)
-    style_header(ws, 8, len(hdr))
-    for i, row in enumerate(SCENARIO_ANCHORS, start=9):
-        name, label = row[0], row[1]
-        mults, weight, mech = row[2:6], row[6], row[7]
-        ws.cell(row=i, column=1, value=name).font = BOLD
-        ws.cell(row=i, column=2, value=label)
-        for j, v in enumerate(mults, start=3):
-            c = ws.cell(row=i, column=j, value=v)
-            c.fill = YELLOW
-            c.border = THIN
-            c.number_format = "0.00"
-        c = ws.cell(row=i, column=3 + len(SCENARIO_YEARS), value=weight)
-        c.fill = YELLOW
-        c.border = THIN
-        c.number_format = "0.00"
-        ws.cell(row=i, column=4 + len(SCENARIO_YEARS), value=mech).alignment = WRAP
-
-    r = 9 + len(SCENARIO_ANCHORS)
-    wcol = get_column_letter(3 + len(SCENARIO_YEARS))
-    ws.cell(row=r, column=2, value="Weights sum (V10, must be 1.000)").font = BOLD
-    c = ws.cell(row=r, column=3 + len(SCENARIO_YEARS),
-                value=f"=SUM({wcol}9:{wcol}{r - 1})")
-    c.number_format = "0.000"
-    c.fill = GREY
-
-    # Footnotes in NOTE_COL, clear of the data columns -- see Presence_per_Tier.
-    ws.cell(row=r + 2, column=NOTE_COL,
-            value="All three scenarios are 1.00 at 2040 BY CONSTRUCTION, so "
-                  "Driver C cannot perturb any year for which sourced data "
-                  "exists (validation V9). Before 2040 the scenarios are "
-                  "identical and this driver has no effect.").font = BOLD
-    ws.cell(row=r + 2, column=NOTE_COL).alignment = WRAP
-    ws.cell(row=r + 4, column=NOTE_COL,
-            value="The band WIDENS after ~2045 by construction. That is "
-                  "deliberate: uncertainty about 2070 should exceed "
-                  "uncertainty about 2035. The withdrawn E4 made it narrow "
-                  "into the far future, which was the clearest sign it was "
-                  "wrong.").alignment = WRAP
-    widths(ws, ("A", 16), ("B", 26), ("C", 8), ("D", 8), ("E", 8), ("F", 8),
-           ("G", 9), ("H", 62), (get_column_letter(NOTE_COL), 70))
+    # ---------------- Scenarios: MOVED ----------------
+    # Driver C now lives in Data/20_scenarios.xlsx, generated by
+    # tools/make_20_scenarios.py. It is a PROJECT-WIDE switch and 19_ is
+    # ADAS-specific, so keeping it here made 19_ the wrong source of truth for
+    # the sensor and PCB models. 19_ keeps tiers, lidar and presence.
 
     # ---------------- Uncertainty ----------------
     ws = wb.create_sheet("Uncertainty")

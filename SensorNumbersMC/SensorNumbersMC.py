@@ -224,8 +224,301 @@ sensor_types = sorted(merged['SensorType'].unique())
 
 ndraws = 200000
 
+# ============================================================================
+# TIME AXIS AND THE VOLTAGE DRIVER
+#
+# 06_ holds the 400V BASIS for the two battery-pack sensing rows (rebased
+# 2026-08-05, see 06_ sheet Notes). The 400V -> 800V uplift is applied HERE,
+# from the same penetration curve Wiring/BevWiring.py reads. It is deliberately
+# NOT recomputed: computing the voltage mix twice guarantees the two models
+# drift apart, which is the exact failure this coupling exists to prevent.
+#
+# PHYSICS. A BMS senses every SERIES element; cells in parallel share a node and
+# are sensed once. Series count is set by pack VOLTAGE, not by vehicle size, so
+# 400V -> 800V roughly doubles the sense lines. Temperature is per MODULE, so
+# its uplift is smaller and genuinely uncertain.
+#
+# NO RENORMALISATION AT BASE_YEAR. This is the one place in the project where
+# renormalising would be WRONG: 06_ is now a 400V basis, not an observed 2025
+# mixture, so the uplift is applied from zero. (Contrast BevWiring, where the
+# 2025 wiring baseline IS observed and must be renormalised.)
+# ============================================================================
 
-def run_batch_simulation(df, segment, ndraws):
+YEARS = np.arange(2020, 2071)          # UNIT: calendar years. Matches BevWiring.
+BASE_YEAR = 2025                       # the anchor; 06_ describes this year
+SNAPSHOT_YEARS = [2020, 2025, 2030, 2035, 2040, 2050, 2070]
+
+PENETRATION_FILE = DATA_DIR / '18_BEV_technology_penetration.xlsx'
+
+# 800V uplift on battery sensing | UNIT: dimensionless multiplier at full 800V.
+# Voltage: series elements 400V ~ 80-96-105, 800V ~ 176-203-216, so the ratio is
+# NOT a fixed 2 -- mode ~2.1, tails 1.7 to 2.5.
+UPLIFT_VOLTAGE_TRI = (1.7, 2.1, 2.5)
+# Temperature: per MODULE, not per series element. Floor 1.0 = module count
+# unchanged, just rearranged (cell-to-pack designs remove modules entirely);
+# ceiling 1.9 = modules follow series count. docs/SENSOR_MODEL_DESIGN.md 3.4.
+UPLIFT_TEMPERATURE_TRI = (1.0, 1.4, 1.9)
+
+# The only two rows the voltage driver touches. Everything else -- HVAC, cabin,
+# inverter, thermal loops -- is voltage-independent, so the uplift is applied
+# ROW-WISE and never to an aggregate.
+BATTERY_COMPONENT = 'Traction battery pack'
+BATTERY_ROWS = {'voltage sensor': UPLIFT_VOLTAGE_TRI,
+                'temperature sensor': UPLIFT_TEMPERATURE_TRI}
+
+
+def _monotone_curve(years, anchor_years, anchor_vals):
+    """PCHIP through the share anchors -- the SAME reader BevWiring uses, so the
+    two models cannot disagree about the curve. C1 and non-overshooting, so a
+    share stays in [0,1] and there is no kink at the 5-year anchors."""
+    from scipy.interpolate import PchipInterpolator
+    x = np.asarray(anchor_years, float)
+    y = np.asarray(anchor_vals, float)
+    o = np.argsort(x)
+    x, y = x[o], y[o]
+    if len(x) < 2:
+        return np.full(len(years), y[0] if len(y) else 0.0)
+    f = PchipInterpolator(x, y, extrapolate=False)
+    return np.clip(np.nan_to_num(f(np.clip(years, x[0], x[-1]))), 0.0, 1.0)
+
+
+def load_800v_share(years):
+    """800V share of new sales per segment, read from 18_ sheet Penetration.
+
+    Returns {segment: (n_years,)}. Single source of truth, shared with
+    BevWiring.py -- validation V12 checks the two agree.
+    """
+    if not PENETRATION_FILE.exists():
+        raise FileNotFoundError(f"Penetration workbook not found: {PENETRATION_FILE}")
+    pen = pd.read_excel(PENETRATION_FILE, sheet_name='Penetration', header=4)
+    pen = pen[pen['Driver'].notna()]
+    out = {}
+    for seg in ['AB', 'CD', 'EF']:
+        d = pen[(pen.Driver == 'Voltage') & (pen.Segment == seg)
+                & (pen.State == '800V')].sort_values('Year')
+        out[seg] = _monotone_curve(years, d.Year.to_numpy(float),
+                                   d.Share_Mode.to_numpy(float))
+    return out
+
+
+print("\nLoading the 800V penetration curve from 18_ (shared with BevWiring)...")
+SHARE_800V = load_800v_share(YEARS)
+_i25 = int(np.searchsorted(YEARS, BASE_YEAR))
+print("  800V share at {}: ".format(BASE_YEAR)
+      + ", ".join(f"{s} {SHARE_800V[s][_i25]:.1%}" for s in ['AB', 'CD', 'EF']))
+
+
+# ============================================================================
+# THE ADAS HARDWARE-TIER DRIVER
+#
+# 01_'s Std / Opt / Rare factor is ALREADY a penetration share -- it says what
+# fraction of vehicles in a segment carry a component. It was simply frozen in
+# time. For the ADAS domain it now becomes a function of year:
+#
+#     presence(component, segment, year)
+#         = SUM_tier  share(tier, segment, year) x presence(component | tier)
+#
+# Both tables are read from Data/19_ADAS_sensor_adoption.xlsx -- THE SAME FILE
+# Wiring/BevWiring.py reads. Never recomputed here.
+#
+# WHY TIER AND NOT SAE LEVEL. A car does not gain a sensor because a regulator
+# grants liability transfer. Volvo's EX90 carries 31 sensors at L2; BMW's i7
+# carried 25 at L3. See Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md.
+#
+# LIDAR IS NOT TIER-GOVERNED. It tracks cost and Chinese competitive pressure,
+# so its presence comes from Driver B (19_ sheet Lidar), not from the tier mix.
+# ============================================================================
+
+ADAS_DOMAIN = 'ADAS'
+ADAS_FILE = DATA_DIR / '19_ADAS_sensor_adoption.xlsx'
+TIERS = ['H0', 'H1', 'H2', 'H3', 'H4']
+LIDAR_COMPONENT = 'LiDAR sensor'
+LIDAR_H4_FLOOR = 0.80        # 19_ Presence_per_Tier: H4 = max(Driver B, 0.80)
+
+
+def load_presence_per_tier(years):
+    """presence(component, segment, year) for every ADAS component in 19_.
+
+    Returns {component: {segment: (n_years,)}}, each value a share in [0,1].
+    """
+    if not ADAS_FILE.exists():
+        raise FileNotFoundError(
+            f"ADAS adoption workbook not found: {ADAS_FILE}\n"
+            f"Generate it with: python3 tools/make_19_adas_sensor_adoption.py")
+
+    ts = pd.read_excel(ADAS_FILE, sheet_name='Tier_Shares', header=3)
+    ts = ts[ts['Segment'].notna()]
+    shares = {}
+    for seg in ['AB', 'CD', 'EF']:
+        d = ts[ts.Segment == seg].sort_values('Year')
+        m = np.vstack([_monotone_curve(years, d.Year.to_numpy(float),
+                                       d[t].to_numpy(float)) for t in TIERS])
+        shares[seg] = m / np.maximum(m.sum(axis=0, keepdims=True), 1e-12)
+
+    ld = pd.read_excel(ADAS_FILE, sheet_name='Lidar', header=3)
+    ld = ld[ld['Year'].notna()].sort_values('Year')
+    lidar = _monotone_curve(years, ld.Year.to_numpy(float),
+                            ld['Share_Mode'].to_numpy(float))
+
+    pr = pd.read_excel(ADAS_FILE, sheet_name='Presence_per_Tier', header=3)
+    pr = pr[pr['Component'].notna() & pr[TIERS].notna().any(axis=1)]
+
+    out = {}
+    for _, r in pr.iterrows():
+        comp = str(r['Component']).strip()
+        per_tier = []
+        for t in TIERS:
+            v = r[t]
+            # Anything not a finite number is the Driver B marker. Checking for
+            # a string is not enough: if the marker is ever written with a
+            # leading "=", Excel stores it as a formula and every reader sees
+            # NaN. Treating NaN as the marker makes this robust either way.
+            per_tier.append(None if (isinstance(v, str) or pd.isna(v)) else float(v))
+        out[comp] = {}
+        for seg in ['AB', 'CD', 'EF']:
+            acc = np.zeros(len(years))
+            for ti, t in enumerate(TIERS):
+                p = per_tier[ti]
+                if p is None:               # lidar: Driver B, floored at H4
+                    p = lidar if t == 'H3' else np.maximum(lidar, LIDAR_H4_FLOOR)
+                acc = acc + shares[seg][ti] * p
+            out[comp][seg] = np.clip(acc, 0.0, 1.0)
+    return out
+
+
+print("Loading the ADAS tier axis from 19_ (shared with BevWiring)...")
+PRESENCE_TIER = load_presence_per_tier(YEARS)
+print(f"  {len(PRESENCE_TIER)} ADAS components, {len(YEARS)} years")
+print("  presence at {} (EF): ".format(BASE_YEAR) + ", ".join(
+    f"{c.split('/')[0].strip()[:18]} {PRESENCE_TIER[c]['EF'][_i25]:.2f}"
+    for c in ['Front ADAS camera', 'Side / mirror cameras', LIDAR_COMPONENT]))
+
+
+# ----------------------------------------------------------------------------
+# CHUNKED ACCUMULATION
+#
+# WHY THIS EXISTS. This script currently has no time axis. Adding one (step 4 of
+# docs/SENSOR_MODEL_DESIGN.md) multiplies the draw matrix by the number of years:
+#
+#     192 rows x 200,000 draws x  1 year  x 8 bytes x 3 segments =  0.9 GB   ok
+#     192 rows x 200,000 draws x 51 years x 8 bytes x 3 segments = 47.0 GB   impossible
+#
+# So statistics must stop depending on holding every draw. The accumulator below
+# is ported from Wiring/BevWiring.py, where the same wall was hit and solved: it
+# keeps fixed-bin histograms instead of samples, so its memory is independent of
+# ndraws. Measured accuracy there: 0.089% on the mean, 0.44% on P2.5/P97.5 --
+# far below the Monte Carlo sampling noise it removes.
+#
+# STEP 3 DELIBERATELY CHANGES NO BEHAVIOUR. The accumulator supplies the
+# statistics; the full-draw path is kept at full size so every figure and raw
+# CSV is bit-for-bit what it was. N_ITER_RAW is the knob step 4 will turn down.
+# ----------------------------------------------------------------------------
+
+N_ITER_STATS = ndraws      # draws behind the STATISTICS, via the accumulator.
+                           # Memory does not scale with this.
+N_ITER_RAW = 20000         # draws kept in full, for figures, the detailed CSV
+                           # and the sensitivity analysis. THIS is what costs
+                           # memory. Lowered from 200,000 in step 4: those
+                           # outputs are single-year (BASE_YEAR) distributions
+                           # and 20,000 draws render them indistinguishably,
+                           # while the STATISTICS still come from the full
+                           # N_ITER_STATS via the accumulator.
+CHUNK_ITER = 20000         # draws simulated at once. Peak memory is set by
+                           # THIS, not by N_ITER_STATS.
+
+N_HIST_BINS = 50           # project convention, same as the wiring model
+N_ACC_BINS = 1000          # INTERNAL resolution, so percentiles are not
+                           # quantised to 1/50th of the range. Must be a
+                           # multiple of N_HIST_BINS.
+PILOT_ITER = 2000          # draws used only to find the accumulator range
+PILOT_PAD = 0.35           # fractional widening of the pilot range
+
+assert N_ACC_BINS % N_HIST_BINS == 0, "N_ACC_BINS must be a multiple of N_HIST_BINS"
+
+
+class Accumulator:
+    """Fixed-bin histogram accumulator. Memory independent of the draw count.
+
+    Ported from Wiring/BevWiring.py. The trailing axis is a series axis, length
+    1 today; step 4 makes it the year axis without touching this class.
+    """
+
+    def __init__(self, lo, hi, n_series=1, n_bins=N_ACC_BINS):
+        lo = np.atleast_1d(np.asarray(lo, dtype=float))
+        hi = np.atleast_1d(np.asarray(hi, dtype=float))
+        span = np.where(hi - lo <= 0, 1.0, hi - lo)
+        self.lo = lo - PILOT_PAD * span / 2.0
+        self.hi = hi + PILOT_PAD * span / 2.0
+        self.width = np.where((self.hi - self.lo) / n_bins <= 0, 1.0,
+                              (self.hi - self.lo) / n_bins)
+        self.n_bins = n_bins
+        self.counts = np.zeros((n_series, n_bins), dtype=np.int64)
+        self.total = np.zeros(n_series)
+        self.total_sq = np.zeros(n_series)      # for std, which BevWiring did not need
+        self.vmin = np.full(n_series, np.inf)
+        self.vmax = np.full(n_series, -np.inf)
+        self.n = 0
+        self.under = np.zeros(n_series, dtype=np.int64)
+        self.over = np.zeros(n_series, dtype=np.int64)
+
+    def add(self, arr):
+        """arr: (n_chunk,) or (n_chunk, n_series)."""
+        if arr.ndim == 1:
+            arr = arr[:, None]
+        self.n += arr.shape[0]
+        self.total += arr.sum(axis=0)
+        self.total_sq += (arr ** 2).sum(axis=0)
+        self.vmin = np.minimum(self.vmin, arr.min(axis=0))
+        self.vmax = np.maximum(self.vmax, arr.max(axis=0))
+        idx = np.floor((arr - self.lo[None, :]) / self.width[None, :]).astype(np.int64)
+        self.under += (idx < 0).sum(axis=0)
+        self.over += (idx >= self.n_bins).sum(axis=0)
+        np.clip(idx, 0, self.n_bins - 1, out=idx)
+        for s in range(arr.shape[1]):
+            self.counts[s] += np.bincount(idx[:, s], minlength=self.n_bins)
+
+    @property
+    def mean(self):
+        return self.total / max(self.n, 1)
+
+    @property
+    def std(self):
+        m = self.mean
+        return np.sqrt(np.maximum(self.total_sq / max(self.n, 1) - m ** 2, 0.0))
+
+    def percentile(self, q):
+        """q in 0..100. Linear interpolation within the containing bin."""
+        out = np.empty(self.counts.shape[0])
+        for s in range(self.counts.shape[0]):
+            c = np.cumsum(self.counts[s])
+            target = q / 100.0 * c[-1]
+            i = min(int(np.searchsorted(c, target)), self.n_bins - 1)
+            below = c[i - 1] if i > 0 else 0
+            frac = (target - below) / max(self.counts[s][i], 1)
+            out[s] = self.lo[s] + (i + frac) * self.width[s]
+        return out
+
+    def coarse(self, s, n_out=N_HIST_BINS):
+        """Sum the fine bins down to exactly n_out bins. Exact, because
+        N_ACC_BINS is a multiple of N_HIST_BINS."""
+        k = self.n_bins // n_out
+        counts = self.counts[s].reshape(n_out, k).sum(axis=1)
+        w = self.width[s] * k
+        edges = self.lo[s] + np.arange(n_out + 1) * w
+        return edges, counts
+
+    def coarse_mode(self):
+        """Mode read off the SAME 50 bins that get exported, so the reported
+        mode can always be reproduced from the histogram."""
+        out = np.empty(self.counts.shape[0])
+        for s in range(self.counts.shape[0]):
+            e, c = self.coarse(s)
+            i = int(np.argmax(c))
+            out[s] = 0.5 * (e[i] + e[i + 1])
+        return out
+
+
+def run_batch_simulation(df, segment, ndraws, unscaled_mask=None):
     """
     Vectorized Monte Carlo for ALL draws at once, for a given set of sensor rows
     (rows of `merged`, optionally pre-filtered) and a given segment.
@@ -240,7 +533,16 @@ def run_batch_simulation(df, segment, ndraws):
 
     row_min = df[f'{col_prefix}_Min'].to_numpy()[:, None]
     row_max = df[f'{col_prefix}_Max'].to_numpy()[:, None]
-    factor = df[f'factor_{segment}'].to_numpy()[:, None]
+    factor = df[f'factor_{segment}'].to_numpy(dtype=float)[:, None]
+
+    if unscaled_mask is not None:
+        # Rows whose presence is supplied by a DRIVER rather than by 01_'s
+        # static label are drawn at factor 1.0 and scaled afterwards. Scaling
+        # afterwards is not optional: a row labelled "-" has factor 0.00, so its
+        # draws are identically zero and no later multiplication could recover
+        # them -- yet the tier mix gives several such rows a real presence in
+        # later years (e.g. Side / mirror cameras in AB).
+        factor = np.where(np.asarray(unscaled_mask, dtype=bool)[:, None], 1.0, factor)
 
     scaled_min = row_min * factor
     scaled_max = row_max * factor
@@ -249,17 +551,214 @@ def run_batch_simulation(df, segment, ndraws):
     return draws
 
 
+def _battery_row_index(df, sensor_type):
+    """Row of the traction battery pack for one sensor type, or None."""
+    m = df[(df['Component'] == BATTERY_COMPONENT) & (df['SensorType'] == sensor_type)]
+    return int(m['_row_idx'].iloc[0]) if len(m) else None
+
+
+def _adas_row_map(df, adas_idx):
+    """{SensorType key: positions within adas_idx}, so the ADAS contribution to
+    each reported sensor type can be summed without touching the other rows."""
+    st_all = df['SensorType'].to_numpy()[adas_idx]
+    return {st: np.flatnonzero(st_all == st) for st in np.unique(st_all)}
+
+
+def apply_adas_tier_presence(df, draws, segment, year=BASE_YEAR):
+    """Scale unscaled ADAS rows by their composed tier presence at `year`.
+
+    For the full-draw path. The accumulator applies this per year internally.
+    Mutates and returns `draws`.
+    """
+    yi = int(np.searchsorted(YEARS, year))
+    idx = np.flatnonzero((df['Domain'] == ADAS_DOMAIN).to_numpy())
+    comps = df['Component'].to_numpy()[idx]
+    pres = np.array([PRESENCE_TIER[c][segment][yi] for c in comps])[:, None]
+    draws[idx, :] = draws[idx, :] * pres
+    return draws
+
+
+def apply_voltage_uplift(df, draws, segment, year=BASE_YEAR):
+    """Apply the 400V -> 800V battery-sensing uplift to a full-draw matrix.
+
+    The accumulator path applies this per year internally. The full-draw path --
+    which feeds the figures, the detailed CSV, the raw distributions and the
+    sensitivity analysis -- needs it too, or those outputs describe a
+    hypothetical all-400V vehicle instead of a real one at `year`.
+
+    Mutates and returns `draws`.
+    """
+    yi = int(np.searchsorted(YEARS, year))
+    n = draws.shape[1]
+    u_volt = np.random.uniform(size=n)                     # one per vehicle
+    is800 = (u_volt < SHARE_800V[segment][yi]).astype(float)
+    for st, tri in BATTERY_ROWS.items():
+        r = _battery_row_index(df, st)
+        if r is None:
+            continue
+        upl = np.random.triangular(*tri, size=n)
+        draws[r, :] = draws[r, :] * (1.0 + is800 * (upl - 1.0))
+    return draws
+
+
+def _series_of(df, draws):
+    """Aggregate a (n_rows, n_draw) draw matrix into the reported series."""
+    out = {}
+    for st in sensor_types:
+        out[st] = draws[df.loc[df['SensorType'] == st, '_row_idx'].to_numpy(), :].sum(axis=0)
+    for d in domains:
+        out[('domain', d)] = draws[df.loc[df['Domain'] == d, '_row_idx'].to_numpy(), :].sum(axis=0)
+    out['total'] = draws.sum(axis=0)
+    return out
+
+
+def run_accumulated(df, segment, n_iter, years=YEARS, chunk=CHUNK_ITER, verbose=True):
+    """Simulate n_iter draws across every year, keeping only statistics.
+
+    Returns {key: Accumulator}, each holding one series per year. Memory is
+    independent of BOTH n_iter and the number of years.
+
+    WHY THIS IS CHEAP. Only 2 of the 192 rows depend on the year -- the battery
+    pack's voltage and temperature sensing. Everything else is voltage
+    independent. So instead of building a (rows x draws x years) array, which
+    would be 47 GB, the year-independent base is drawn ONCE per chunk and the
+    two affected rows are adjusted per year as a delta on four series:
+    the two sensor types, the HV Powertrain domain, and the total.
+
+    The voltage state is drawn comonotonically -- one uniform per iteration,
+    held across all years -- so a vehicle is one design that switches once,
+    never a blend. Same scheme as the architecture driver in BevWiring.
+    """
+    keys = list(sensor_types) + [('domain', d) for d in domains] + ['total']
+    n_years = len(years)
+    share = SHARE_800V[segment]
+    hv_domain_key = ('domain', 'HV Powertrain')
+
+    rows = {st: _battery_row_index(df, st) for st in BATTERY_ROWS}
+    missing = [k for k, v in rows.items() if v is None]
+    if missing:
+        raise ValueError(f"battery rows not found in 06_: {missing}")
+
+    adas_mask = (df['Domain'] == ADAS_DOMAIN).to_numpy()
+    adas_idx = np.flatnonzero(adas_mask)
+    adas_comp = df['Component'].to_numpy()[adas_idx]
+    adas_key_rows = _adas_row_map(df, adas_idx)
+    adas_domain_key = ('domain', ADAS_DOMAIN)
+
+    def chunk_series(n):
+        """Yield {key: (n, n_years)} for one chunk.
+
+        Two drivers act, on disjoint row sets:
+          ADAS rows      -> tier presence, drawn unscaled then scaled per year
+          battery rows   -> 800V uplift, applied as a delta per year
+        Everything else is year-independent and drawn once.
+        """
+        base = run_batch_simulation(df, segment, n, unscaled_mask=adas_mask)
+
+        # year-independent part: everything except ADAS
+        non_adas = base.copy()
+        non_adas[adas_idx, :] = 0.0
+        s0 = _series_of(df, non_adas)
+        del non_adas
+
+        u_volt = np.random.uniform(size=n)                   # ONE per vehicle
+        upl = {st: np.random.triangular(*BATTERY_ROWS[st], size=n) for st in BATTERY_ROWS}
+
+        out = {k: np.repeat(s0[k][:, None], n_years, axis=1) for k in keys}
+        for yi in range(n_years):
+            # --- ADAS: scale each unscaled row by its composed presence
+            pres = np.array([PRESENCE_TIER[c][segment][yi] for c in adas_comp])[:, None]
+            adas_scaled = base[adas_idx, :] * pres
+            a_tot = adas_scaled.sum(axis=0)
+            for k, local_rows in adas_key_rows.items():
+                out[k][:, yi] += adas_scaled[local_rows, :].sum(axis=0)
+            out[adas_domain_key][:, yi] += a_tot
+            out['total'][:, yi] += a_tot
+            del adas_scaled
+
+            # --- battery: 800V uplift, comonotonic across years
+            is800 = (u_volt < share[yi]).astype(float)
+            d_tot = np.zeros(n)
+            for st in BATTERY_ROWS:
+                delta = base[rows[st], :] * is800 * (upl[st] - 1.0)
+                out[st][:, yi] += delta
+                d_tot += delta
+            out[hv_domain_key][:, yi] += d_tot
+            out['total'][:, yi] += d_tot
+        return out
+
+    if verbose:
+        print(f"  pilot {PILOT_ITER:,} draws to set accumulator ranges "
+              f"({n_years} years)...")
+    pilot = chunk_series(PILOT_ITER)
+    accs = {k: Accumulator(pilot[k].min(axis=0), pilot[k].max(axis=0),
+                           n_series=n_years) for k in keys}
+    del pilot
+
+    done = 0
+    while done < n_iter:
+        n = min(chunk, n_iter - done)
+        s = chunk_series(n)
+        for k in keys:
+            accs[k].add(s[k])
+        del s
+        done += n
+        if verbose and (done % (chunk * 5) == 0 or done == n_iter):
+            print(f"    {done:>9,} / {n_iter:,}")
+    return accs
+
+
+def stats_from_accumulator(acc, yi=None):
+    """Same keys as the full-draw stats dict, so downstream code is unchanged.
+
+    yi selects the year; default is BASE_YEAR, so every existing output keeps
+    describing the same vehicle it described before the time axis existed.
+    """
+    if yi is None:
+        yi = int(np.searchsorted(YEARS, BASE_YEAR))
+    return {
+        'mean': float(acc.mean[yi]),
+        'mode': float(acc.coarse_mode()[yi]),
+        'std': float(acc.std[yi]),
+        'min': float(acc.vmin[yi]),
+        'max': float(acc.vmax[yi]),
+        'p025': float(acc.percentile(2.5)[yi]),
+        'p25': float(acc.percentile(25)[yi]),
+        'p50': float(acc.percentile(50)[yi]),
+        'p75': float(acc.percentile(75)[yi]),
+        'p975': float(acc.percentile(97.5)[yi]),
+    }
+
+
 all_segment_draws = {}       # segment -> (n_rows, ndraws) matrix, row order == merged row order
 all_segment_results = {}     # segment -> dict: sensor_type -> 1D array (ndraws,), plus 'total'
+all_segment_accs = {}        # segment -> {key: Accumulator}  -- the statistics path
 
 for segment in segments:
     print("\n" + "="*70)
     print(f"RUNNING MONTE CARLO SIMULATION FOR {segment} SEGMENT")
     print("="*70)
-    print(f"Number of simulations: {ndraws:,}")
+    print(f"Statistics : {N_ITER_STATS:,} draws via the accumulator "
+          f"(memory independent of this)")
+    print(f"Full-draw  : {N_ITER_RAW:,} draws kept, for figures and raw CSVs")
     print(f"Number of (Domain, Component, SensorType) rows: {len(merged)}\n")
 
-    draws = run_batch_simulation(merged, segment, ndraws)
+    # --- statistics path: chunked, memory independent of the draw count
+    all_segment_accs[segment] = run_accumulated(merged, segment, N_ITER_STATS)
+
+    # --- full-draw path: needed by the figures, the detailed CSV, the raw
+    #     distributions and the sensitivity analysis, none of which can be
+    #     rebuilt from histograms. THIS is what costs memory; step 4 caps it.
+    # The full-draw path describes a vehicle at BASE_YEAR, so it needs the SAME
+    # drivers the accumulator applies. Without them, every figure and raw CSV
+    # would silently show an all-400V, frozen-2025-ADAS vehicle. V14 compares
+    # the two paths at BASE_YEAR and fails loudly if either is missed -- it
+    # already caught exactly this once.
+    _adas_mask = (merged['Domain'] == ADAS_DOMAIN).to_numpy()
+    draws = run_batch_simulation(merged, segment, N_ITER_RAW,
+                                 unscaled_mask=_adas_mask)
+    draws = apply_adas_tier_presence(merged, draws, segment, BASE_YEAR)
+    draws = apply_voltage_uplift(merged, draws, segment, BASE_YEAR)
     all_segment_draws[segment] = draws
 
     results = {}
@@ -284,24 +783,29 @@ def approx_mode(x, bins=200):
 
 
 all_stats = {}
+v14 = []          # (segment, key, accumulator value, full-draw value) for the check below
 
 for segment in segments:
     results = all_segment_results[segment]
+    accs = all_segment_accs[segment]
     stats = {}
 
     for key, values in results.items():
-        stats[key] = {
+        # STATISTICS COME FROM THE ACCUMULATOR (N_ITER_STATS draws, memory
+        # independent). The full-draw values are computed alongside only to
+        # verify the port -- see the V14 table printed after this loop.
+        stats[key] = stats_from_accumulator(accs[key])
+
+        full = {
             'mean': np.mean(values),
             'mode': approx_mode(values, bins=200),
             'std': np.std(values),
-            'min': np.min(values),
-            'max': np.max(values),
             'p025': np.percentile(values, 2.5),
-            'p25': np.percentile(values, 25),
             'p50': np.percentile(values, 50),
-            'p75': np.percentile(values, 75),
-            'p975': np.percentile(values, 97.5)
+            'p975': np.percentile(values, 97.5),
         }
+        for m in ('mean', 'std', 'p025', 'p50', 'p975'):
+            v14.append((segment, key, m, stats[key][m], full[m]))
 
     all_stats[segment] = stats
 
@@ -327,11 +831,216 @@ for segment in segments:
 
 
 # ============================================================================
+# V14 -- DOES THE ACCUMULATOR REPRODUCE THE FULL-DRAW RESULT?
+#
+# The whole point of step 3: the port must not change the answer. Tolerance is
+# 3%, the project's self-consistency noise floor (19_ sheet Uncertainty) -- a
+# single source disagrees with itself by 2.8%, so demanding better of a
+# statistical estimator would be demanding it reproduce noise.
+# ============================================================================
+
+V14_TOL = 0.03
+
+print("\n" + "="*70)
+print("V14 -- ACCUMULATOR vs FULL DRAW")
+print("="*70)
+print(f"  accumulator: {N_ITER_STATS:,} draws, chunked, memory independent")
+print(f"  full draw  : {N_ITER_RAW:,} draws held in memory")
+print(f"  tolerance  : {V14_TOL:.0%} (project noise floor)\n")
+
+worst = {}
+fails = []
+for seg, key, metric, acc_v, full_v in v14:
+    denom = abs(full_v) if abs(full_v) > 1e-9 else 1.0
+    dev = abs(acc_v - full_v) / denom
+    if dev > worst.get(metric, (0, None, None))[0]:
+        worst[metric] = (dev, seg, key)
+    if dev > V14_TOL and abs(full_v) > 1.0:
+        fails.append((seg, key, metric, acc_v, full_v, dev))
+
+print(f"  {'metric':<8}{'worst deviation':>18}   where")
+for metric in ('mean', 'std', 'p025', 'p50', 'p975'):
+    if metric in worst:
+        dev, seg, key = worst[metric]
+        print(f"  {metric:<8}{dev:>17.3%}   {seg} / {key}")
+
+print(f"\n  {len(v14) - len(fails)} / {len(v14)} series-metrics within tolerance")
+print(f"  (metrics whose full-draw value is <= 1.0 sensor are excluded from the "
+      f"pass/fail\n   count -- relative error is meaningless at that scale -- but "
+      f"they still appear\n   in the worst-deviation table above.)")
+if fails:
+    print("  OUTSIDE TOLERANCE:")
+    for seg, key, metric, a, f, d in fails[:10]:
+        print(f"    {seg:>3} {str(key):<34} {metric:<6} acc {a:>10.3f}  full {f:>10.3f}  {d:>7.2%}")
+    if len(fails) > 10:
+        print(f"    ... and {len(fails) - 10} more")
+else:
+    print("  V14 PASSED -- the accumulator reproduces the full-draw result.")
+
+
+# ============================================================================
+# V11 / V12 -- THE VOLTAGE DRIVER
+#
+# V11: does the 400V basis in 06_, plus the 800V uplift, reproduce what 06_
+#      ORIGINALLY recorded as the observed 2025 mixture? This is the check that
+#      would have caught the CD 800V error automatically.
+# V12: do the sensor model and the wiring model draw the SAME 800V share?
+# ============================================================================
+
+print("\n" + "="*70)
+print("V11 / V12 -- VOLTAGE DRIVER")
+print("="*70)
+
+# --- V12 first: the two models must read one curve
+print("\n  V12 -- shared 800V penetration curve")
+try:
+    import sys as _sys
+    _sys.path.insert(0, str(BASE_DIR / "Wiring"))
+    import BevWiring as _bw                              # noqa: E402
+    _wire = _bw.load_inputs(YEARS)
+    worst_v12 = max(float(np.abs(_wire.volt[s] - SHARE_800V[s]).max())
+                    for s in segments)
+    print(f"    max |sensor curve - wiring curve| over all segments "
+          f"and {len(YEARS)} years: {worst_v12:.3e}")
+    print("    V12 PASSED -- one curve, two models."
+          if worst_v12 < 1e-12 else "    V12 FAILED -- the models disagree.")
+except Exception as e:                                   # noqa: BLE001
+    print(f"    skipped (could not import BevWiring: {type(e).__name__}: {e})")
+
+# --- V11: round-trip against what 06_ originally recorded
+print(f"\n  V11 -- 400V basis + uplift reproduces the original 2025 observation")
+print("    Only the VOLTAGE row is an assertion. Its 400V basis was derived by")
+print("    rebasing the recorded 2025 mixture, so reproducing that mixture is a")
+print("    genuine round-trip -- and it is what would have caught the CD error.")
+print("    The TEMPERATURE maxima were deliberately CUT on 2026-08-05 (97/109/173")
+print("    -> 70/85/120, see 06_ sheet Notes), so the original observation is no")
+print("    longer the target and those rows are informational only.\n")
+
+ORIGINAL_06 = {          # observed 2025 mixture, before the 2026-08-05 rebasing
+    'voltage sensor':     {'AB': 96.0, 'CD': 102.0, 'EF': 153.0},
+    'temperature sensor': {'AB': 66.0, 'CD':  81.0, 'EF': 129.0},
+}
+ASSERTED = {'voltage sensor'}
+
+yi25 = int(np.searchsorted(YEARS, BASE_YEAR))
+print(f"    {'row':<20}{'seg':<5}{'predicted':>11}{'orig 06_':>10}{'dev':>9}   note")
+v11_fail = 0
+for st, tri in BATTERY_ROWS.items():
+    for seg in segments:
+        idx = _battery_row_index(merged, st)
+        lo = merged.iloc[idx][f'{SEG_COL[seg]}_Min']
+        hi = merged.iloc[idx][f'{SEG_COL[seg]}_Max']
+        f = merged.iloc[idx][f'factor_{seg}']
+        basis = 0.5 * (lo + hi) * f
+        pred = basis * (1.0 + SHARE_800V[seg][yi25] * (np.mean(tri) - 1.0))
+        orig = ORIGINAL_06[st][seg]
+        dev = pred / orig - 1.0
+        if st in ASSERTED:
+            note = 'ASSERTED'
+            if abs(dev) > 0.05:
+                v11_fail += 1
+                note = 'ASSERTED -- OUTSIDE 5%'
+        else:
+            note = 'informational (maxima cut deliberately)'
+        print(f"    {st:<20}{seg:<5}{pred:>11.1f}{orig:>10.1f}{dev:>8.1%}   {note}")
+print(f"\n    {'V11 PASSED' if v11_fail == 0 else f'V11 FAILED -- {v11_fail} outside 5%'}"
+      f"  (voltage rows only; tolerance 5%, project noise floor ~3%)")
+
+
+# ============================================================================
+# V13 -- DOES THE TIER COMPOSITION REPRODUCE 01_'s STATIC LABELS AT 2025?
+#
+# 01_'s Std / Opt / Rare factor is a 2025 observation. The tier composition
+# replaces it with a curve. At 2025 the two must agree, or the new axis is
+# describing a different vehicle from the one the file recorded.
+#
+# Tolerance 0.15 on a share (docs/SENSOR_MODEL_DESIGN.md section 8). Loose on
+# purpose: Std/Opt/Rare is a 4-level ordinal scale, so it cannot resolve better
+# than ~0.25 in the first place.
+# ============================================================================
+
+print("\n" + "="*70)
+print("V13 -- TIER COMPOSITION vs 01_ STATIC LABELS, AT 2025")
+print("="*70)
+
+V13_TOL = 0.15
+print(f"\n    {'component':<36}{'seg':<5}{'composed':>10}{'01_':>7}{'diff':>8}")
+v13_fail = []
+for comp in sorted(PRESENCE_TIER):
+    for seg in segments:
+        m = status_df[status_df['Component'].map(norm_key) == norm_key(comp)]
+        if not len(m):
+            continue
+        static = float(m.iloc[0][f'factor_{seg}'])
+        composed = float(PRESENCE_TIER[comp][seg][yi25])
+        diff = composed - static
+        flag = '' if abs(diff) <= V13_TOL else '  <-- OUTSIDE'
+        if abs(diff) > V13_TOL:
+            v13_fail.append((comp, seg, composed, static, diff))
+        print(f"    {comp[:35]:<36}{seg:<5}{composed:>10.2f}{static:>7.2f}"
+              f"{diff:>+8.2f}{flag}")
+
+n_checked = sum(1 for c in PRESENCE_TIER for s in segments
+                if len(status_df[status_df['Component'].map(norm_key) == norm_key(c)]))
+print(f"\n    {n_checked - len(v13_fail)} / {n_checked} within {V13_TOL:.2f}")
+print("    V13 PASSED -- the tier axis reproduces the 2025 observation."
+      if not v13_fail else
+      f"    V13 -- {len(v13_fail)} outside tolerance, listed above.")
+
+
+# ============================================================================
+# YEAR-RESOLVED STATISTICS  -- the output this whole step exists to produce
+# ============================================================================
+
+print("\n" + "="*70)
+print("YEAR-RESOLVED SENSOR COUNTS")
+print("="*70)
+
+rows_out = []
+for segment in segments:
+    for key, acc in all_segment_accs[segment].items():
+        name = key[1] if isinstance(key, tuple) else key
+        level = 'Domain' if isinstance(key, tuple) else (
+            'Total' if key == 'total' else 'SensorType')
+        mean = acc.mean
+        p025 = acc.percentile(2.5)
+        p50 = acc.percentile(50)
+        p975 = acc.percentile(97.5)
+        mode = acc.coarse_mode()
+        std = acc.std
+        for yi, yr in enumerate(YEARS):
+            rows_out.append({
+                'Segment': segment, 'Level': level, 'Name': name, 'Year': int(yr),
+                'Mean': mean[yi], 'Mode': mode[yi], 'Median': p50[yi],
+                'Std': std[yi], 'P025': p025[yi], 'P975': p975[yi],
+            })
+year_stats = pd.DataFrame(rows_out)
+year_stats.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / 'sensor_year_stats.csv', index=False)
+print(f"  {len(year_stats):,} rows -> csv_monte_carlo/sensor_year_stats.csv")
+print(f"  ({len(segments)} segments x {len(all_segment_accs['AB'])} series "
+      f"x {len(YEARS)} years)")
+
+print("\n  TOTAL sensors per vehicle, mean, by year:")
+print(f"    {'seg':<5}" + "".join(f"{y:>9}" for y in SNAPSHOT_YEARS))
+for segment in segments:
+    m = all_segment_accs[segment]['total'].mean
+    print(f"    {segment:<5}" + "".join(
+        f"{m[int(np.searchsorted(YEARS, y))]:>9.1f}" for y in SNAPSHOT_YEARS))
+
+print("\n  Battery cell VOLTAGE sensing, mean, by year (the 800V driver):")
+print(f"    {'seg':<5}" + "".join(f"{y:>9}" for y in SNAPSHOT_YEARS))
+for segment in segments:
+    m = all_segment_accs[segment]['voltage sensor'].mean
+    print(f"    {segment:<5}" + "".join(
+        f"{m[int(np.searchsorted(YEARS, y))]:>9.1f}" for y in SNAPSHOT_YEARS))
+
+
+# ============================================================================
 # SEGMENT COMPARISON (grand total)
 # ============================================================================
 
 print("\n" + "="*70)
-print("SEGMENT COMPARISON")
+print(f"SEGMENT COMPARISON  (at BASE_YEAR = {BASE_YEAR})")
 print("="*70)
 
 comparison_df = pd.DataFrame({

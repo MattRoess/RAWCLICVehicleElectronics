@@ -543,7 +543,7 @@ different routes to the same number is mild corroboration of both.
 
 ### 7.3 How to select a scenario
 
-One cell in `19_` sheet `Scenarios`. **No code editing.**
+One cell in `20_` sheet `Control`. **No code editing.**
 
 ```
 Active_Scenario:   SAMPLE

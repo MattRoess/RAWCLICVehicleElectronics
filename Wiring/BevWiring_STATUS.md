@@ -30,7 +30,9 @@ Last updated 2026-08-05. This is the single handover document.
 | `Data/17_BEV_wiring_baseline_2025.xlsx` | 2025 baseline, gauges, SDV factors, SDV depth |
 | `Data/18_BEV_technology_penetration.xlsx` | architecture / voltage shares. Its `Metres_per_Sensor` is still read; its **`Sensors_per_Level` is not** |
 | `Data/19_ADAS_sensor_adoption.xlsx` | **tier shares, sensor counts per tier, lidar, scenarios, validation targets** |
+| `Data/20_scenarios.xlsx` | **PROJECT-WIDE scenario selection — sheet `Control` cell B4 drives every model** |
 | `tools/make_19_adas_sensor_adoption.py` | regenerates `19_` from the report |
+| `tools/make_20_scenarios.py` | regenerates `20_` |
 | `Wiring/MODEL_HISTORY.md` | why v3 and v4 were replaced, why `15_`/`16_` were retired, and the user decisions still in force |
 
 ---
@@ -50,7 +52,7 @@ One anchor year (2025), independent drivers, no splines and no era seams.
 | Voltage | 400V / 800V | HV Cu-per-METRE | `18_` |
 | **A — hardware tier** | **H0 … H4** | ADAS + sensor LENGTH, via sensor counts | `19_` |
 | **B — lidar** | equipped / not, lag sampled | lidar count only | `19_` |
-| **C — scenario** | S1 / S2 / S3, post-2040 | multiplier on all sensor counts | `19_` |
+| **C — scenario** | S1 / S2 / S3, post-2040 | multiplier on all sensor counts | **`20_`** |
 
 Independent, so architecture shortens wiring while sensors lengthen it. That is
 why CD flattens near 1,750 m and EF near 2,850 m after 2040 rather than falling.
@@ -183,12 +185,12 @@ independent hand-calculation exactly, so it is a finding, not a bug.
 | To change | Edit |
 |---|---|
 | When a segment adopts SDV / 800V | `18_` sheet `Penetration`, yellow cells |
-| **Which ADAS scenario is active** | **`19_` sheet `Scenarios`, cell B5** — `SAMPLE` (default) / `S1` / `S2` / `S3` |
+| **Which ADAS scenario is active** | **`20_` sheet `Control`, cell B4** — `SAMPLE` (default) / `S1` / `S2` / `S3` |
 | **Tier adoption by segment and year** | **`19_` sheet `Tier_Shares`** |
 | **Sensor counts per tier** | **`19_` sheet `Tiers`** |
 | **Lidar path and band** | **`19_` sheet `Lidar`** |
 | **China→Europe lidar lag** | **`19_` sheet `Parameters`** |
-| **Scenario multipliers / weights** | **`19_` sheet `Scenarios`** |
+| **Scenario multipliers / weights** | **`20_` sheet `Scenarios`** (project-wide) |
 | Metres per sensor | `18_` sheet `Metres_per_Sensor` (unchanged) |
 | Conductor gauges, 2025 lengths | `17_` sheet `Baseline_2025` |
 | SDV mechanism-vs-totals conflict | `17_` sheet `SDV_Depth` |
