@@ -255,15 +255,19 @@ V14 is the safety net for §6: the rewrite must not move 2025.
 
 Each step is separately verifiable, and each stops for approval.
 
-| Step | Work | Verified by |
-|---|---|---|
-| **1** | Correct `06_` battery rows to the 400V basis (§5) | recomputes the original 2025 values within 3% |
-| **2** | Create `Data/20_scenarios.xlsx`; repoint `BevWiring.py` at it | wiring results unchanged, 9/9 still passing |
-| **3** | **Port the accumulator into `SensorNumbersMC.py`**, no drivers yet | **V14** — 2025 output matches today's static result |
-| **4** | Add the year axis and the voltage driver (§3) | **V11**, **V12** |
-| **5** | Add the tier driver from `19_ Presence_per_Tier` | **V13** |
-| **6** | Add `metres_per_sensor` architecture factor to `BevWiring.py` (§4) | wiring re-run, V1–V10 |
-| **7** | PCB models, reusing all of the above | later |
+| Step | Work | Verified by | STATUS 2026-08-05 |
+|---|---|---|---|
+| **1** | Correct `06_` battery rows to the 400V basis (§5) | recomputes the original 2025 values within 3% | **DONE** — AB −1.6%, CD −2.3%, EF +3.1% |
+| **2** | Create `Data/20_scenarios.xlsx`; repoint `BevWiring.py` at it | wiring results unchanged, 9/9 still passing | **DONE** — identical to 0.000% |
+| **3** | **Port the accumulator into `SensorNumbersMC.py`**, no drivers yet | **V14** — 2025 output matches today's static result | **DONE** — 915/915, worst mean 0.841% |
+| **4** | Add the year axis and the voltage driver (§3) | **V11**, **V12** | **DONE** — V11 passed, V12 = 0.000e+00 |
+| **5** | Add the tier driver from `19_ Presence_per_Tier` | **V13** | **IMPLEMENTED, NOT SIGNED OFF** — V13 21/36, four decisions open, see `HANDOVER.md` §11 |
+| **6** | Add `metres_per_sensor` architecture factor to `BevWiring.py` (§4) | wiring re-run, V1–V10 | not started |
+| **7** | PCB models, reusing all of the above | later | not started |
+
+**Do not start step 6 or 7 until step 5 is signed off.** Decision 3 in
+`HANDOVER.md` §11 changes Driver A, which the wiring model also reads — so
+resolving it after step 6 would mean redoing step 6.
 
 Step 3 is the risky one and carries no behavioural change — deliberately, so
 the rewrite can be verified before anything starts moving.

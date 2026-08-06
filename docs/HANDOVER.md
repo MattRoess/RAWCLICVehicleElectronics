@@ -8,12 +8,12 @@ anything from conversation.
 
 ## PICK UP HERE
 
-### 1. FIRST: the work is NOT COMMITTED
+### 1. FIRST: the work is uncommitted, but it does travel
 
 At the end of the session, `git status` showed **13 files changed or new**
-against commit `3425805`. Three of them **do not exist in git at all**:
+against commit `3425805`. Three do not exist in git at all:
 
-| Untracked — would be LOST | What it is |
+| Untracked | What it is |
 |---|---|
 | `Data/20_scenarios.xlsx` | **the project-wide scenario switch. `BevWiring.py` raises `FileNotFoundError` without it** |
 | `docs/SENSOR_MODEL_DESIGN.md` | the agreed design for the sensor work |
@@ -23,12 +23,25 @@ Modified but uncommitted: `SensorNumbersMC/SensorNumbersMC.py` (steps 3–5, the
 whole sensor rewrite), `Wiring/BevWiring.py`, `Data/06_`, `Data/18_`,
 `Data/19_`, `tools/make_19_adas_sensor_adoption.py`, and four documents.
 
-**The repository lives in iCloud Drive, so files may sync to the other machine
-on their own — but do not rely on it.** Commit before switching:
+**The repository lives in iCloud Drive and the machines are synced, so the files
+arrive on their own.** Committing is still worth doing as a restore point —
+today's session changed two Excel inputs (`06_`, `18_`) in ways that are hard to
+reconstruct by hand, and a commit is the only way to diff or revert them.
 
 ```bash
 git add -A && git commit -m "Sensor model: tier and voltage drivers, central scenarios"
 ```
+
+**Two iCloud cautions on the new machine:**
+
+1. **Files may be dataless placeholders.** iCloud evicts content and downloads
+   on access. If a script fails with an unreadable or zero-length workbook, open
+   the `Data/` folder in Finder and let it download before re-running.
+2. **Let the sync finish before running anything.** A half-synced `Data/` gives
+   errors that look like data problems but are not.
+
+`.venv/` is gitignored and machine-specific — recreate it if the new machine
+does not have one.
 
 ### 2. THEN: verify the state on the new machine
 
@@ -284,6 +297,72 @@ and understate its growth later. Demonstrated in report §2.6b.
 
 ---
 
+## 7b. SESSION LOG — 2026-08-05, in order
+
+Everything done, so nothing has to be reconstructed from conversation.
+
+### Wiring model (considered done by the user before the sensor work began)
+
+| # | Change | Verification |
+|---|---|---|
+| 1 | ADAS axis moved from **SAE certification level** to **installed hardware tier** H0–H4, plus lidar (Driver B) and scenario (Driver C) drivers | 9/9 validation |
+| 2 | `19_ADAS_sensor_adoption.xlsx` created from the report, via `tools/make_19_...py` | V6, V9, V10 exact |
+| 3 | `validate()` added — targets executed, not just written down | 9/9 |
+| 4 | **CD 800V curve corrected** in `18_`: 2020 12.3%→0.5%, 2025 27.3%→7.0%, 2030 50%→40% | CD copper −1.4% (2030) to −3.4% (2070); AB/EF and all lengths unchanged |
+| 5 | Repo restructured: `docs/`, `tools/`, `Data/` = inputs only | all paths re-resolved |
+| 6 | `Data/15_`, `Data/16_`, `Wiring/Archive/` deleted; notes preserved in `Wiring/MODEL_HISTORY.md` | no dangling references |
+| 7 | Scenario switch moved `19_` → **`20_scenarios.xlsx`** sheet `Control` cell **B4** | results identical to 0.000% |
+
+### Sensor model (`SensorNumbersMC.py`) — steps 1–5 of the design note
+
+| Step | Change | Result |
+|---|---|---|
+| **1** | `06_` battery rows rebased to a **400V basis**: voltage 96–96/96–108/108–198 → **80–105 / 80–105 / 96–120**; temperature rebased then maxima cut 97/109/173 → **70/85/120** | round-trip reproduces the original 2025 observation within 3% |
+| **2** | `Data/20_scenarios.xlsx` created; `BevWiring.py` repointed | wiring results identical, 9/9 |
+| **3** | **Chunked `Accumulator` ported** from `BevWiring.py`; statistics no longer need every draw | **V14 915/915**, worst mean deviation 0.841% |
+| **4** | **Year axis (2020–2070) + voltage driver.** `N_ITER_RAW` 200,000 → 20,000 | **V11 PASSED, V12 0.000e+00** |
+| **5** | **ADAS tier driver** from `19_ Presence_per_Tier` | **V13 21/36 — see §11** |
+
+### Bugs found and fixed during the work
+
+1. **The full-draw path had no voltage driver** (found by V14: 42% on the mean,
+   112% on P97.5 for EF voltage sensing). Every figure and raw CSV would have
+   described an all-400V vehicle while the statistics described a real one.
+2. **`"=Driver B"` marker parsed as a formula.** Excel treats a leading `=` as
+   a formula; openpyxl wrote a formula cell with no cached value; pandas read
+   `NaN`; NaN propagated into sensor counts and only surfaced 200,000 draws
+   later. Fixed at the root (no `=`) and made robust in the reader.
+3. **Footnote text in data columns** made `Presence_per_Tier` read back as 13
+   rows for a 12-row table. Footnotes moved to column O.
+4. **`06_` "has no radar or lidar rows"** — false, a naming mismatch. The rows
+   exist as `RF transceiver` / `laser diode array`. Corrected in three places.
+5. **`Sensor Type Summary` disagreed with `Sensor Counts Detail`** by 2–6 units
+   on temperature, before any change of ours. Regenerated from Detail.
+
+**A recurring pattern worth naming: string markers and labels inside numeric
+columns are fragile in this toolchain.** Three of the five bugs above were a
+reader silently misinterpreting a marker, and all three produced plausible
+output. Prefer a separate typed column over an in-band marker.
+
+### Key numbers as of the last run
+
+| Total sensors per vehicle, mean | 2025 | 2040 | 2070 |
+|---|---|---|---|
+| AB | 287.3 | 321.7 | 411.4 |
+| CD | 439.9 | 551.4 | 568.1 |
+| EF | 645.8 | 736.9 | 738.9 |
+
+| Battery cell voltage sensing, mean | 2025 | 2040 | 2070 |
+|---|---|---|---|
+| AB | 100.6 | 126.5 | 199.6 |
+| CD | 109.0 | 191.3 | 203.5 |
+| EF | 167.8 | 235.6 | 236.8 |
+
+Wiring, 2025 anchors: length AB 1408.6 / CD 2477.5 / EF 3485.7;
+copper AB 34.1 / CD 56.1 / EF 75.8.
+
+---
+
 ## 8. Open items, in priority order
 
 1. **`SensorNumbersMC.py` is not rewired. THIS IS THE PENDING DECISION.**
@@ -342,6 +421,68 @@ and understate its growth later. Demonstrated in report §2.6b.
 8. Pre-existing: EF +100 m row-sum discrepancy and taxonomy mismatch. See
    `BevWiring_STATUS.md` §11. (The old name collision was resolved on
    2026-08-05 by deleting `Wiring/Archive/`.)
+
+---
+
+## 11. THE FOUR OPEN DECISIONS — start here tomorrow
+
+Step 5 is implemented and running, but **V13 fails 15 of 36** and should not be
+signed off until these are settled. Nothing should be built on top until then.
+
+### What V13 does, and what it found
+
+`01_`'s Std / Opt / Rare factor is a 2025 observation. The tier composition
+replaces it with a curve. At 2025 the two must agree, or the new axis is
+describing a different vehicle from the one the file recorded. Tolerance 0.15.
+
+**The failures are not random — they fall into three kinds, and in most of them
+the tier table looks more right than `01_`.**
+
+**(a) `01_` is demonstrably stale — the tier table is right**
+
+| | composed | `01_` |
+|---|---|---|
+| Front ADAS camera, AB | **1.00** | 0.50 (Opt) |
+| Front long-range radar, AB | **1.00** | 0.50 (Opt) |
+| Driver monitoring camera, AB / CD | 0.41 / 0.66 | 0.00 / 0.25 |
+
+EU **GSR-2 has mandated** a front camera, AEB radar and driver attention
+monitoring on every new registration **since July 2024**. `01_` still calls them
+optional on small cars — it predates the regulation. The tier table pins H0 at
+1.00 for exactly this reason.
+
+**(b) A substitution the static label cannot express — right by design**
+
+`ADAS camera ECU (basic)`, EF: composed **0.34** vs `01_` 1.00. That row
+declines 1.00 → 0.10 across tiers as the smart camera is absorbed into the
+domain controller. EF in 2025 is mostly H3/H4, so most EF cars no longer carry a
+separate camera ECU. A four-level ordinal label cannot say "this component is
+being replaced".
+
+**(c) The tier table itself looks wrong in one place**
+
+`LiDAR sensor`, EF: composed **0.12** against a real-world ~0.5%. Driver B
+correctly gives ~1%, but `Presence_per_Tier` floors H4 at 0.80 and Driver A puts
+EF at **15% H4 in 2025**. 0.15 × 0.80 = 0.12.
+
+H4 means redundant, liability-transfer hardware — Drive Pilot and Personal
+Pilot. That was never 15% of EF sales. **This is the same finding as report
+§9.0**, where the Yano units cross-check showed Driver A's low end too
+aggressive. Two independent routes to the same conclusion.
+
+### The decisions
+
+| # | Decision | Recommendation |
+|---|---|---|
+| **1** | Update `01_`'s GSR-2 rows — front camera, front radar, driver monitoring → `Std` for AB? | **Yes.** The regulation is a fact and the file is stale |
+| **2** | Accept the camera-ECU divergence as correct-by-design and exclude it from V13? | **Yes.** It is the substitution the whole tier axis exists to express |
+| **3** | Revisit EF's H4 share in `19_ Tier_Shares` — is 15% at 2025 too high? | **Yes, but as its own step.** It changes Driver A, which the wiring model also reads |
+| **4** | Leave V13 failing as a documented finding, or re-scope it to assert only what should agree? | **Re-scope.** Keep the informational rows visible |
+
+**Do not widen the tolerance until it passes.** V13 was built to catch the tier
+axis drifting from its source. What it actually caught is that the source is
+stale in three places and the tier table is wrong in one. Both findings vanish
+if the threshold is loosened.
 
 ---
 
