@@ -141,7 +141,8 @@ fatal. V1 and V8 wobble at low iteration counts.
 | To change | Edit |
 |---|---|
 | Tier adoption by segment and year | `19_` sheet `Tier_Shares`, yellow cells |
-| Sensor counts per tier | `19_` sheet `Tiers` |
+| Sensor counts per tier **per segment** | `19_` sheet `Tiers` -- 15 rows since 2026-08-07 |
+| Which chip equals one box | `19_` sheet `Modules_vs_Elements` |
 | Lidar path or its band | `19_` sheet `Lidar` |
 | China→Europe lidar lag | `19_` sheet `Parameters` |
 | Scenario multipliers or weights | `20_` sheet `Scenarios` (project-wide) |
@@ -181,9 +182,11 @@ mechanism this change exists to replace.
    camera is absorbed into the domain controller. That is a real substitution,
    and like the CAN/Ethernet case in `BevWiring_STATUS.md` §10 it is currently
    drawn as independent. It affects category-level statements, not segment totals.
-4. **`Presence_per_Tier` is not yet consumed by any code.** It is the guideline
-   for `SensorNumbersMC.py`, which has not been changed. The wiring model uses
-   sheet `Tiers` directly.
+4. **CORRECTED 2026-08-07.** ~~`Presence_per_Tier` is not yet consumed by any
+   code.~~ It **is** consumed -- `SensorNumbersMC.py` has read it since
+   2026-08-06 (`load_presence_per_tier`, `apply_adas_tier_presence`). This
+   paragraph predated that commit by six minutes and was never refreshed.
+
 5. **`01_` EF lidar presence is wrong** — labelled `Opt` (0.50) against a real
    2025 value near 0.01. A 50× gap, far outside every spread in sheet
    `Uncertainty`. Not yet fixed, and it will matter as soon as

@@ -16,10 +16,14 @@ Written 2026-08-04. Revised 2026-08-05.
 >    31 sensors at L2, BMW's i7 carried 25 at L3, and certified L3 is being
 >    *withdrawn* in Europe while sensor content rises. Rationale:
 >    `../Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md`.
-> 2. **`Wiring/BevWiring.py` has already been rewired** onto that axis
->    (`USE_TIER_AXIS = True`). `SensorNumbersMC.py` has **not**. Until it is,
->    the two models are on different axes — which is exactly the divergence
->    §3 below warns about.
+> 2. **BOTH models are now on the tier axis.** `BevWiring.py` moved on
+>    2026-08-05, `SensorNumbersMC.py` on 2026-08-06 (`USE_TIER_AXIS = True`).
+>    An earlier version of this note said the sensor model had **not** been
+>    rewired — that was stale, and is corrected as of 2026-08-07.
+> 3. **They are now checked against each other.** `V15` in
+>    `SensorNumbersMC.py` compares MODULE counts and fails if the two drift
+>    apart. 45/45 as of 2026-08-07. Treat it as a regression guard: `19_`
+>    sheet `Tiers` is derived from `06_`, so both sides share a basis.
 >
 > §3's central insight is unchanged and is why the fix stays small: the
 > Std/Opt/Rare presence factor is already a penetration share. Read "level" as
@@ -59,7 +63,7 @@ the whole chain.
 | Mechanism | presence factor per component: **Std 1.00, Opt 0.50, Rare 0.25, "–" 0.00**; scales min and max, then a uniform draw between them |
 | Aggregation | sums per SensorType within and across domains, per segment |
 | Outputs | `csv_monte_carlo/sensor_monte_carlo_{SEG}_summary_stats.csv` and detailed results, per segment |
-| **Missing** | **no year dimension, no autonomy-level dimension** |
+| ~~Missing~~ | ~~no year dimension, no autonomy-level dimension~~ -- **both added 2026-08-06** (year axis 2020-2070, hardware-tier presence, 800V driver) |
 
 ---
 

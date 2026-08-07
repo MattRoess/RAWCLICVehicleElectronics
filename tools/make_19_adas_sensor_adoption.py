@@ -45,15 +45,42 @@ YEARS = [2025, 2030, 2035, 2040, 2050, 2060, 2070]
 
 # --- report section 3 -------------------------------------------------------
 TIER_DEF = [
-    # tier, name, cam_min, cam_max, rad_min, rad_max, us_min, us_max,
+    # segment, tier, name, cam_min, cam_max, rad_min, rad_max, us_min, us_max,
     # lid_min, lid_max, ranging, sae, tag
-    ("H0", "GSR-2 mandated floor", 1, 1, 1, 1, 0, 4, 0, 0, 1.0, "L0 / L1", "DERIVED"),
-    ("H1", "ACC + lane keeping", 1, 2, 1, 3, 8, 12, 0, 0, 2.0, "L2", "ASSUMPTION"),
-    ("H2", "hands-off highway", 5, 8, 3, 5, 12, 12, 0, 0, 4.0, "L2+", "ASSUMPTION"),
-    ("H3", "urban + highway 'L2++'", 8, 12, 5, 5, 12, 16, 0, 1, 5.3, "L2++ or L3", "FACT-anchored"),
-    ("H4", "redundant, liability transfer", 6, 12, 5, 6, 12, 13, 1, 3, 7.0, "L3", "FACT-anchored"),
+    #
+    # PER SEGMENT since 2026-08-07. One table for all three sizes assumed a
+    # small car at H3 carries a large car's ultrasonic ring, which it does not.
+    #
+    # Camera and radar counts are DERIVED from 06_VehicleSensorNumbers.xlsx
+    # composed through Presence_per_Tier, using the PRIMARY element of each
+    # component (19_ sheet Modules_vs_Elements) so these are MODULE counts --
+    # boxes needing a cable, not chips. 06_ is per segment and is checked
+    # against measured cars, so it is the better source for how many.
+    #
+    # H0 additionally carries the EU GSR-2 legal floor: a front camera AND a
+    # driver-facing camera (attention / distraction warning) AND an AEB radar.
+    # The previous single-table H0 said 1 camera, which counted the front one
+    # and silently dropped the driver-facing camera the regulation requires.
+    #
+    # CONSEQUENCE: V15 in SensorNumbersMC.py now compares the two models on a
+    # shared basis, so it is a REGRESSION GUARD rather than an independent
+    # check -- it catches one side being hand-edited, not both being wrong.
+    ('AB', 'H0', 'GSR-2 mandated floor', 2, 3, 1, 1, 1, 3, 0, 0, 1.0, 'L0 / L1', 'DERIVED'),
+    ('AB', 'H1', 'ACC + lane keeping', 2, 4, 1, 3, 3, 8, 0, 0, 2.0, 'L2', 'DERIVED'),
+    ('AB', 'H2', 'hands-off highway', 4, 6, 2, 5, 4, 8, 0, 0, 4.0, 'L2+', 'DERIVED'),
+    ('AB', 'H3', "urban + highway 'L2++'", 5, 6, 3, 5, 4, 8, 0, 1, 5.3, 'L2++ or L3', 'FACT-anchored'),
+    ('AB', 'H4', 'redundant, liability transfer', 5, 6, 3, 5, 4, 8, 1, 3, 7.0, 'L3', 'FACT-anchored'),
+    ('CD', 'H0', 'GSR-2 mandated floor', 2, 5, 1, 1, 2, 3, 0, 0, 1.0, 'L0 / L1', 'DERIVED'),
+    ('CD', 'H1', 'ACC + lane keeping', 2, 7, 1, 3, 7, 9, 0, 0, 2.0, 'L2', 'DERIVED'),
+    ('CD', 'H2', 'hands-off highway', 4, 10, 2, 5, 8, 10, 0, 0, 4.0, 'L2+', 'DERIVED'),
+    ('CD', 'H3', "urban + highway 'L2++'", 5, 10, 3, 5, 8, 10, 0, 1, 5.3, 'L2++ or L3', 'FACT-anchored'),
+    ('CD', 'H4', 'redundant, liability transfer', 5, 10, 3, 5, 8, 10, 1, 3, 7.0, 'L3', 'FACT-anchored'),
+    ('EF', 'H0', 'GSR-2 mandated floor', 2, 5, 1, 1, 2, 4, 0, 0, 1.0, 'L0 / L1', 'DERIVED'),
+    ('EF', 'H1', 'ACC + lane keeping', 4, 7, 2, 3, 7, 11, 0, 0, 2.0, 'L2', 'DERIVED'),
+    ('EF', 'H2', 'hands-off highway', 7, 10, 4, 5, 8, 12, 0, 0, 4.0, 'L2+', 'DERIVED'),
+    ('EF', 'H3', "urban + highway 'L2++'", 8, 11, 5, 5, 8, 12, 0, 1, 5.3, 'L2++ or L3', 'FACT-anchored'),
+    ('EF', 'H4', 'redundant, liability transfer', 8, 11, 5, 5, 8, 12, 1, 3, 7.0, 'L3', 'FACT-anchored'),
 ]
-
 # --- report section 4.1 -----------------------------------------------------
 TIER_SHARES = {
     "EF": {2025: (0.00, 0.10, 0.25, 0.50, 0.15),
@@ -213,6 +240,38 @@ VALIDATION = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# MODULES vs ELEMENTS  -- the explicit link between the two models.
+#
+# A sensor MODULE is one physical box that gets one harness drop.
+# A sensor ELEMENT is one sensing chip inside it.
+#
+# 06_VehicleSensorNumbers.xlsx enumerates ELEMENTS: a corner radar appears
+# twice, as an RF transceiver and as a temperature sensor. The wiring model
+# needs MODULES, because a radar box takes one cable however many chips are
+# inside. Counting elements there would have doubled the radar harness.
+#
+# PRIMARY is the element whose count EQUALS the module count. The companions
+# ride along in the same box and must never be counted as separate endpoints.
+#
+# Verified 2026-08-07: on this basis EF radar overlaps the wiring model's Tiers
+# sheet at all five tiers (0/5 on the element basis), ultrasonic 5/5.
+# ---------------------------------------------------------------------------
+MODULES_VS_ELEMENTS = [
+    # Component, PRIMARY element (= module count), companion elements, elements per module
+    ("Front ADAS camera",            "CMOS image sensor",     "temperature sensor",                                  2),
+    ("Rear view camera",             "CMOS image sensor",     "-",                                                   1),
+    ("Side / mirror cameras",        "CMOS image sensor",     "-",                                                   1),
+    ("Front long-range radar",       "RF transceiver",        "temperature sensor",                                  2),
+    ("Corner short/mid-range radars","RF transceiver",        "temperature sensor",                                  2),
+    ("LiDAR sensor",                 "laser diode array",     "photodetector array, IMU, temperature sensor",        4),
+    ("Ultrasonic sensors",           "ultrasonic transducer", "-",                                                   1),
+    ("Driver monitoring camera",     "IR camera sensor",      "IR LED array",                                        2),
+    ("ADAS camera ECU (basic)",      "-",                     "CMOS image sensor, temperature sensor",               0),
+    ("Parking assist ECU",           "-",                     "ultrasonic sensor, camera input",                     0),
+]
+
+
 def style_header(ws, row, ncols):
     for c in range(1, ncols + 1):
         cell = ws.cell(row=row, column=c)
@@ -314,11 +373,13 @@ def build():
     ws = wb.create_sheet("Tiers")
     ws["A1"] = "ADAS hardware tiers - report S3"
     ws["A1"].font = TITLE
-    ws["A2"] = ("H3 and H4 are anchored on measured cars (EQS, i7, EX90). "
-                "H0 is pinned by EU GSR-2. H1 and H2 are the weakest rows.")
+    ws["A2"] = ("PER SEGMENT. Camera and radar counts are derived from 06_ composed through "
+                "Presence_per_Tier, as MODULE counts (boxes needing a cable, not chips). "
+                "H0 carries the GSR-2 legal floor: front camera AND driver-facing camera "
+                "AND AEB radar. Ultrasonic scales with vehicle size.")
     ws["A2"].alignment = WRAP
-    hdr = ["Tier", "Name", "Cam_min", "Cam_max", "Radar_min", "Radar_max",
-           "Ultra_min", "Ultra_max", "Lidar_min", "Lidar_max",
+    hdr = ["Segment", "Tier", "Name", "Cam_min", "Cam_max", "Radar_min",
+           "Radar_max", "Ultra_min", "Ultra_max", "Lidar_min", "Lidar_max",
            "Ranging_mode", "SAE label seen", "Tag"]
     for j, h in enumerate(hdr, start=1):
         ws.cell(row=4, column=j, value=h)
@@ -327,10 +388,10 @@ def build():
         for j, v in enumerate(row, start=1):
             c = ws.cell(row=i, column=j, value=v)
             c.border = THIN
-            if 3 <= j <= 11:
+            if 4 <= j <= 12:
                 c.fill = YELLOW
-        ws.cell(row=i, column=13).fill = fill_for(row[-1])
-    widths(ws, ("A", 7), ("B", 32), ("L", 16), ("M", 15))
+        ws.cell(row=i, column=14).fill = fill_for(row[-1])
+    widths(ws, ("A", 9), ("B", 7), ("C", 32), ("M", 16), ("N", 15))
 
     # ---------------- Tier_Shares ----------------
     ws = wb.create_sheet("Tier_Shares")
@@ -346,7 +407,10 @@ def build():
     for j, h in enumerate(hdr, start=1):
         ws.cell(row=4, column=j, value=h)
     style_header(ws, 4, len(hdr))
-    ranging = {t[0]: t[10] for t in TIER_DEF}
+    # TIER_DEF is per segment since 2026-08-07, so index 0 is the segment and
+    # index 1 the tier. Ranging mode is a property of the TIER, identical
+    # across segments, so collapsing on the tier key is correct here.
+    ranging = {t[1]: t[11] for t in TIER_DEF}
     r = 5
     for seg in SEGMENTS:
         for yr in YEARS:
@@ -504,6 +568,30 @@ def build():
         ws.cell(row=i, column=7).fill = GREY
     widths(ws, ("A", 5), ("B", 42), ("C", 22), ("D", 12), ("E", 26),
            ("F", 12), ("G", 8))
+
+
+    # ---- Modules vs elements: the link the two models share
+    ws = wb.create_sheet("Modules_vs_Elements")
+    ws["A1"] = "One physical box = one harness drop. One element = one chip inside it."
+    ws["A1"].font = TITLE
+    ws["A2"] = ("06_ enumerates ELEMENTS -- a corner radar appears twice, as an RF "
+                "transceiver and as a temperature sensor. The wiring model needs "
+                "MODULES: a radar box takes ONE cable however many chips are inside. "
+                "PRIMARY is the element whose count equals the module count; the "
+                "companions ride along in the same box and must never be counted as "
+                "separate wiring endpoints. Rows with PRIMARY '-' are ECUs, not "
+                "sensor modules -- their elements are inputs from other modules and "
+                "are a KNOWN DOUBLE-COUNT RISK (see 06_ sheet Notes).")
+    ws["A2"].alignment = WRAP
+    hdr = ["Component", "PRIMARY element (= module count)", "Companion elements",
+           "Elements per module"]
+    for j, h in enumerate(hdr, start=1):
+        ws.cell(row=4, column=j, value=h)
+    style_header(ws, 4, len(hdr))
+    for i, row in enumerate(MODULES_VS_ELEMENTS, start=5):
+        for j, v in enumerate(row, start=1):
+            ws.cell(row=i, column=j, value=v).border = THIN
+    widths(ws, ("A", 34), ("B", 32), ("C", 44), ("D", 20))
 
     wb.save(OUT)
     return OUT

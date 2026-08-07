@@ -988,6 +988,94 @@ print("    V13 PASSED -- the tier axis reproduces the 2025 observation."
       f"    V13 -- {len(v13_fail)} outside tolerance, listed above.")
 
 
+
+# ============================================================================
+# V15 -- DO THE TWO MODELS COUNT THE SAME CAR?
+#
+# The sensor model counts ELEMENTS (chips). The wiring model reads 19_ sheet
+# Tiers, which counts MODULES (boxes). A corner radar is ONE box containing an
+# RF transceiver AND a temperature sensor, so an element count is double a
+# module count for radar -- and a radar box takes ONE cable however many chips
+# are inside.
+#
+# 19_ sheet Modules_vs_Elements names, per component, the PRIMARY element whose
+# count EQUALS the module count. This check composes module counts the sensor
+# model's way and asserts they overlap the wiring model's Tiers ranges. Without
+# it the two models can drift apart silently, which is exactly what happened:
+# on an element basis EF radar overlapped at 0 of 5 tiers.
+#
+# Ranges, not points: two ranges pass if they OVERLAP AT ALL. Both sides are
+# Monte Carlo inputs, so demanding equal midpoints would be demanding that two
+# independent estimates agree to the decimal.
+# ============================================================================
+
+print("\n" + "="*70)
+print("V15 -- MODULE COUNTS: SENSOR MODEL vs WIRING MODEL (19_ Tiers)")
+print("="*70)
+
+_mve = pd.read_excel(ADAS_FILE, sheet_name="Modules_vs_Elements", header=3)
+_mve = _mve[_mve.iloc[:, 0].notna()]
+PRIMARY_ELEMENT = {str(r.iloc[0]).strip(): str(r.iloc[1]).strip()
+                   for _, r in _mve.iterrows() if str(r.iloc[1]).strip() != "-"}
+_tiers_tbl = pd.read_excel(ADAS_FILE, sheet_name="Tiers", header=3)
+_tiers_tbl = _tiers_tbl[_tiers_tbl.Tier.notna()]
+
+V15_GROUPS = {
+    "camera":     (["Front ADAS camera", "Rear view camera", "Side / mirror cameras",
+                    "Driver monitoring camera"], "Cam_min", "Cam_max"),
+    "radar":      (["Front long-range radar", "Corner short/mid-range radars"],
+                   "Radar_min", "Radar_max"),
+    "ultrasonic": (["Ultrasonic sensors"], "Ultra_min", "Ultra_max"),
+}
+_SEG06 = {"AB": "A-B", "CD": "C-D", "EF": "E-F"}
+
+
+def _module_range(components, seg, tier):
+    """Modules per vehicle at `tier`: primary element only, scaled by presence."""
+    lo = hi = 0.0
+    for comp in components:
+        cell = _pres_raw.loc[_pres_raw.Component.map(norm_key) == norm_key(comp), tier]
+        if not len(cell) or isinstance(cell.iloc[0], str):
+            continue                      # lidar reads "Driver B", not a tier value
+        f = float(cell.iloc[0])
+        prim = PRIMARY_ELEMENT.get(comp)
+        r = sensor_df[(sensor_df['Component'].map(norm_key) == norm_key(comp)) &
+                      (sensor_df['SensorType'].map(norm_key) == norm_key(prim))]
+        if not len(r):
+            continue
+        c = _SEG06[seg]
+        lo += f * float(r[f'{c}_Min'].iloc[0])
+        hi += f * float(r[f'{c}_Max'].iloc[0])
+    return lo, hi
+
+
+_pres_raw = pd.read_excel(ADAS_FILE, sheet_name="Presence_per_Tier", header=3)
+_pres_raw = _pres_raw[_pres_raw.Component.notna()]
+
+v15_fail = []
+print(f"\n    {'group':<12}{'seg':<5}{'tier':<6}{'sensor model':>16}{'wiring model':>16}   result")
+for gname, (comps, cmin, cmax) in V15_GROUPS.items():
+    for seg in segments:
+        # Tiers is per SEGMENT since 2026-08-07 -- take only this segment's rows.
+        # Without this filter each segment is compared against all fifteen rows,
+        # so AB gets checked against EF's counts.
+        seg_rows = _tiers_tbl[_tiers_tbl.Segment.astype(str).str.strip() == seg]
+        for _, trow in seg_rows.iterrows():
+            s_lo, s_hi = _module_range(comps, seg, trow.Tier)
+            w_lo, w_hi = float(trow[cmin]), float(trow[cmax])
+            ok = not (s_hi < w_lo or w_hi < s_lo)
+            if not ok:
+                v15_fail.append((gname, seg, trow.Tier, (s_lo, s_hi), (w_lo, w_hi)))
+            print(f"    {gname:<12}{seg:<5}{trow.Tier:<6}"
+                  f"{f'{s_lo:.1f} - {s_hi:.1f}':>16}{f'{w_lo:.0f} - {w_hi:.0f}':>16}"
+                  f"   {'overlap' if ok else 'NO OVERLAP  <--'}")
+_n15 = len(V15_GROUPS) * len(_tiers_tbl)   # Tiers already carries the segment
+print(f"\n    {_n15 - len(v15_fail)} / {_n15} overlap")
+print("    V15 PASSED -- the two models describe the same car."
+      if not v15_fail else
+      f"    V15 -- {len(v15_fail)} combinations do not overlap, listed above.")
+
+
 # ============================================================================
 # YEAR-RESOLVED STATISTICS  -- the output this whole step exists to produce
 # ============================================================================

@@ -2,7 +2,7 @@
 
 **Current model: `Wiring/BevWiring.py`** (generation 5; v3 and v4 were deleted
 on 2026-08-05 — `MODEL_HISTORY.md` records why each was replaced).
-Last updated 2026-08-05. This is the single handover document.
+Last updated 2026-08-07. This is the single handover document.
 
     python3 Wiring/BevWiring.py          # ~4 min at 200,000 iterations
 
@@ -50,7 +50,7 @@ One anchor year (2025), independent drivers, no splines and no era seams.
 |---|---|---|---|
 | Architecture | Conventional / Transitional / SDV_Zonal | LV + signal LENGTH | `18_` |
 | Voltage | 400V / 800V | HV Cu-per-METRE | `18_` |
-| **A — hardware tier** | **H0 … H4** | ADAS + sensor LENGTH, via sensor counts | `19_` |
+| **A — hardware tier** | **H0 … H4**, counts **per segment** | ADAS + sensor LENGTH, via sensor counts | `19_` |
 | **B — lidar** | equipped / not, lag sampled | lidar count only | `19_` |
 | **C — scenario** | S1 / S2 / S3, post-2040 | multiplier on all sensor counts | **`20_`** |
 
@@ -77,6 +77,22 @@ its own timing offset. The distribution is therefore genuinely bimodal during a
 transition — visible as a second hump in the 2020/2025 histograms, which is the
 Conventional fleet (CD 2025: 17% of draws at 87 kg against 83% at 50 kg, ratio
 1.75, matching `CONVENTIONAL_UPLIFT` of 1.67). It is not an artefact.
+
+> **2026-08-07 — `Tiers` is now per segment.** It was one table for all three
+> sizes, which assumed a small car at H3 carries a large car's ultrasonic ring.
+> Now 15 rows (AB/CD/EF x H0-H4), with camera and radar counts **derived from
+> `06_`** composed through `Presence_per_Tier`, as MODULE counts — boxes needing
+> a cable, not chips inside them (`19_` sheet `Modules_vs_Elements`).
+> **H0 carries the EU GSR-2 legal floor**: a front camera AND a driver-facing
+> camera AND an AEB radar. The previous H0 said 1 camera and silently dropped
+> the driver-facing one the regulation requires.
+>
+> The two models are now checked against each other by **V15** in
+> `SensorNumbersMC.py` — 45/45 as of 2026-08-07. It is a **regression guard**,
+> not an independent check: `Tiers` is derived from `06_`, so both sides share
+> a basis. It catches one side being hand-edited, not both being wrong.
+>
+> Anchors are unchanged: AB 1408.6 / CD 2477.2 / EF 3485.9, still 9/9.
 
 ---
 
@@ -211,10 +227,15 @@ year columns needs no code change.
 
 ## 9. NEXT: the sensor model
 
-**This is now the largest outstanding item.** `BevWiring.py` has been rewired
-onto the hardware-tier axis; `SensorNumbersMC.py` has **not**. Until it is, the
-two models sit on different axes — precisely the divergence the coupling exists
-to prevent.
+**DONE 2026-08-06/07.** `SensorNumbersMC.py` was rewired onto the hardware-tier
+axis on 2026-08-06, and on 2026-08-07 the two models were reconciled: `19_`
+sheet `Tiers` became per segment and derived from `06_`, and **V15** now
+compares them and fails if they drift — 45/45. This section previously said the
+sensor model had *not* been rewired; that was stale.
+
+What remains is not the axis but the **numbers**: `Tiers` and `06_` now agree,
+but they agree on a shared basis, so V15 is a regression guard rather than an
+independent check.
 
 The ADAS block still supplies roughly a quarter of the 2070 answer:
 

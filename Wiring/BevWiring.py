@@ -314,12 +314,17 @@ def _load_tier_axis(years) -> dict:
     col = {"camera": ("Cam_min", "Cam_max"), "radar": ("Radar_min", "Radar_max"),
            "ultrasonic": ("Ultra_min", "Ultra_max"),
            "lidar": ("Lidar_min", "Lidar_max")}
+    # Keyed by (SEGMENT, tier, sensor_type) since 2026-08-07. One table for all
+    # three sizes assumed a small car at H3 carries a large car's ultrasonic
+    # ring. Camera and radar counts are MODULE counts derived from 06_ through
+    # Presence_per_Tier; H0 carries the GSR-2 legal floor, which includes the
+    # driver-facing camera the previous single-table version dropped.
     tier_counts = {}
     for _, r in td.iterrows():
         for st, (lo_c, hi_c) in col.items():
             lo, hi = float(r[lo_c]), float(r[hi_c])
-            tier_counts[(r["Tier"], st)] = (lo, (lo + hi) / 2.0,
-                                            max(hi, lo + 1e-9))
+            tier_counts[(r["Segment"], r["Tier"], st)] = (
+                lo, (lo + hi) / 2.0, max(hi, lo + 1e-9))
 
     # ---- B: lidar
     ld = pd.read_excel(ADAS_FILE, sheet_name="Lidar", header=3)
@@ -748,7 +753,7 @@ def _adas_metres_tier(rng, inp, seg, years, n_iter, met):
     cnt = np.zeros((n_iter, n_years))
     for stype in SENSOR_TYPES:
         per_tier = np.array([
-            rng.triangular(*_tri_tier(inp.tier_counts, t, stype), size=n_iter)
+            rng.triangular(*_tri_tier(inp.tier_counts, seg, t, stype), size=n_iter)
             for t in TIERS
         ])                                                            # (n_tiers,n_iter)
         drawn = np.take_along_axis(
@@ -761,10 +766,19 @@ def _adas_metres_tier(rng, inp, seg, years, n_iter, met):
     return cnt
 
 
-def _tri_tier(counts, tier, stype):
-    """(min, mode, max) sensor count for a tier. Degenerate triples are widened
-    by a hair so rng.triangular does not divide by a zero span."""
-    lo, mo, hi = counts.get((tier, stype), (0.0, 0.0, 1e-9))
+def _tri_tier(counts, segment, tier, stype):
+    """(min, mode, max) sensor count for a (segment, tier). Degenerate triples
+    are widened by a hair so rng.triangular does not divide by a zero span.
+
+    A missing key raises rather than returning zeros: silently modelling a car
+    with no sensors is the failure mode this whole coupling exists to prevent.
+    """
+    try:
+        lo, mo, hi = counts[(segment, tier, stype)]
+    except KeyError:
+        raise KeyError(
+            f"19_ sheet Tiers has no row for segment {segment!r}, tier {tier!r}. "
+            f"Regenerate with: python3 tools/make_19_adas_sensor_adoption.py")
     return (lo, min(max(mo, lo), hi), max(hi, lo + 1e-9))
 
 
