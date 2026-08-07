@@ -1,6 +1,6 @@
 # Handover — BEV wiring and sensor models
 
-State as of **2026-08-07**. (Sections dated 2026-08-05 describe the previous
+State as of **2026-08-07, end of session**. (Sections dated 2026-08-05 describe the previous
 session; section 7c is today.) Written so this work can be picked
 up on another machine, or by a different assistant, without reconstructing
 anything from conversation.
@@ -9,72 +9,48 @@ anything from conversation.
 
 ## PICK UP HERE
 
-### 1. FIRST: the work is uncommitted, but it does travel
+### 1. State: steps 1-6 of 7 are DONE and committed
 
-At the end of the session, `git status` showed **13 files changed or new**
-against commit `3425805`. Three do not exist in git at all:
+Nothing is uncommitted. Four commits on 2026-08-07, newest last:
 
-| Untracked | What it is |
-|---|---|
-| `Data/20_scenarios.xlsx` | **the project-wide scenario switch. `BevWiring.py` raises `FileNotFoundError` without it** |
-| `docs/SENSOR_MODEL_DESIGN.md` | the agreed design for the sensor work |
-| `tools/make_20_scenarios.py` | regenerates `20_` |
+    105b2bf  module basis, per-segment tiers, V15
+    7d83b87  close step 5: 01_ relabelled, V13 re-scoped, EF H4 corrected
+    99cf3e1  documents
+    54583d8  step 6: architecture factor on ADAS metres-per-sensor
 
-Modified but uncommitted: `SensorNumbersMC/SensorNumbersMC.py` (steps 3–5, the
-whole sensor rewrite), `Wiring/BevWiring.py`, `Data/06_`, `Data/18_`,
-`Data/19_`, `tools/make_19_adas_sensor_adoption.py`, and four documents.
-
-**The repository lives in iCloud Drive and the machines are synced, so the files
-arrive on their own.** Committing is still worth doing as a restore point —
-today's session changed two Excel inputs (`06_`, `18_`) in ways that are hard to
-reconstruct by hand, and a commit is the only way to diff or revert them.
-
-```bash
-git add -A && git commit -m "Sensor model: tier and voltage drivers, central scenarios"
-```
-
-**Two iCloud cautions on the new machine:**
-
-1. **Files may be dataless placeholders.** iCloud evicts content and downloads
-   on access. If a script fails with an unreadable or zero-length workbook, open
-   the `Data/` folder in Finder and let it download before re-running.
-2. **Let the sync finish before running anything.** A half-synced `Data/` gives
-   errors that look like data problems but are not.
-
-`.venv/` is gitignored and machine-specific — recreate it if the new machine
-does not have one.
-
-### 2. THEN: verify the state on the new machine
+### 2. Verify on a new machine
 
 ```bash
 python3 -c "import pandas,numpy,scipy,openpyxl,matplotlib; print('deps ok')"
-```
-
-```bash
-python3 Wiring/BevWiring.py
-```
-
-Expect **9/9 validation passed** and 2025 anchors near AB 1409 / CD 2478 /
-EF 3486. (2026-08-07: AB 1408.6 / CD 2477.2 / EF 3485.9.)
-
-```bash
+python3 Wiring/BevWiring.py               # ~4 min
 python3 SensorNumbersMC/SensorNumbersMC.py
 ```
 
-Expect **V11 PASSED, V12 PASSED (0.000e+00), V14 915/915, V13 21/36** — V13
-failing is the current known state, see §11.
+Expect **wiring 9/9**, anchors AB 1408.7 / CD 2457.9 / EF 3505.5.
+Expect **sensor: V11, V12, V13 31/31 asserted, V14 915/915, V15 45/45 - all
+PASSED**, with 5 rows printed as "unresolvable on a 4-level scale" (that is
+correct, see S11).
 
-### 3. WHERE WE STOPPED
+**macOS note.** On a machine where `~/Documents` is protected, Claude Code
+cannot read the repo until **System Settings -> Privacy & Security -> Files and
+Folders -> Claude -> Documents Folder** is enabled AND the app is fully quit and
+reopened. Until then only files the app itself created are readable, which looks
+like a corrupt checkout but is not. The repo is public on GitHub, so
+`gh repo clone MattRoess/RAWCLICVehicleElectronics` is a working fallback.
 
-**Step 5 of 7 is DONE and signed off (2026-08-07).** All four decisions in §11
-are resolved and every validation passes: V11, V12, V13 31/31 asserted,
-V14 915/915, V15 45/45, wiring 9/9.
+### 3. THE NEXT STEP IS STEP 7 - the PCB models
 
-**The next step is step 6** -- the `metres_per_sensor` architecture factor in
-`BevWiring.py` (design note §4). It is the last structural piece and it is a
-code change, not a data change.
+Step 6 was the last structural piece of the wiring/sensor pair. The hold that
+said "do not start step 6 or 7 until step 5 is signed off" is lifted; step 5 was
+signed off on 2026-08-07.
 
----
+The user has said explicitly: **"We will address PCBs later."** Do not start
+step 7 without asking.
+
+**Before step 7, one thing is owed:** `01_VehicleElectronics.xlsx` had 10 cells
+relabelled on 2026-08-07. `SensorElementsMC.py` and the PCB models also read
+`01_`, so their outputs have shifted and have NOT been re-run. That is the first
+thing to check when the PCB work starts.
 
 ## 0. WORKING RULES — read before doing anything
 
@@ -369,8 +345,14 @@ output. Prefer a separate typed column over an in-band marker.
 | CD | 8.0 | 6.5 |
 | EF | 9.9 | 10.2 |
 
-Wiring, 2025 anchors: length AB 1408.6 / CD 2477.2 / EF 3485.9;
-copper AB 34.1 / CD 56.1 / EF 75.8.
+| Wiring length (m), mean | 2025 | 2040 | 2070 |
+|---|---|---|---|
+| AB | 1408.7 | 1098.7 | 903.4 |
+| CD | 2457.9 | 1896.6 | 1725.2 |
+| EF | 3505.5 | 2895.0 | 2828.4 |
+
+Wiring, 2025 anchors after step 6: length AB 1408.7 / CD 2457.9 / EF 3505.5;
+copper AB 34.0 / CD 55.8 / EF 76.2.
 
 ---
 
@@ -396,6 +378,8 @@ correlated with the wiring model and its development over time."*
 | 7 | **`01_` relabelled, 10 cells.** Front camera and front radar on AB Opt -> Std (GSR-2, mandated since Jul 2024). Driver monitoring AB "-" -> Opt, **not Std** -- ADDW is only mandatory from Jul 2026 and V13 checks 2025. Plus side cameras, corner radars, CD lidar, CD central computer, and the basic camera ECU on AB and EF | V13 10 of 15 failures cleared |
 | 8 | **V13 re-scoped, tolerance untouched.** Five rows can never pass: `01_` has four values and composed presences of 0.66-0.84 land between Opt and Std, so the worst-case gap is 0.25 against a 0.15 tolerance. A row is now asserted only when the scale could express it; the rest print as "unresolvable" and stay visible | **V13 31/31 asserted** |
 | 9 | **EF near-term H4 corrected.** 2025 0.15 -> 0.03, 2030 0.30 -> 0.20, moved to H3. 2035 onward unchanged because the Yano check agrees there (1.10 at 2035 against 6x at 2025). EF lidar presence 0.12 -> 0.03, overshoot 24x -> 6x | V13 still 31/31, wiring 9/9 |
+
+| 10 | **Step 6: architecture factor on ADAS metres-per-sensor.** A sensor on a zonal car reaches its nearest zone controller; on a conventional car it runs to a central ECU. `ADAS_ZONAL_METRES_TRI = (0.85, 0.875, 0.90)` at full zonal, half that for Transitional. **Uses the caller's architecture draw**, so the same car is zonal for both its length and its metres-per-sensor | ADAS metres 2040 -5.3/-5.6/-5.6%, 2070 -7.4/-6.0/-6.6%; **2025 unmoved**, as the renormalisation requires |
 
 **Decisions taken by the user this session:** reading 1 for the count basis;
 Option A for cameras with Option B documented as an alternative; `Tiers`
@@ -531,3 +515,41 @@ Paid reports identified but not purchased: IDTechEx *Passenger Car ADAS Market
 2025-2045* (best fit — 14 features forecast by region over 20 years; ask
 whether it segments by vehicle class before buying), S&P Global Mobility
 *Autonomy Forecasts*, SBD *ADAS Sensor Market Landscape*. Report §10.5.
+
+---
+
+## 12. OPEN, ranked by how much they would move the answer
+
+Written 2026-08-07. Nothing here is in progress.
+
+| # | Item | Size |
+|---|---|---|
+| 1 | **`LIDAR_H4_FLOOR = 0.80`** in `SensorNumbersMC.py`. After the EF H4 correction the composed EF lidar presence is 0.03 against a real ~0.005 — still ~6x. The tier shares are no longer the cause; this floor is. | moderate, and the last known overshoot |
+| 2 | **Driver C multipliers (1.0 / 1.4 / 2.0)** remain the largest single lever on 2070 and are unsourced. | largest on 2070 |
+| 3 | **`Sensors_per_Level` in `18_` is now dead.** The tier axis replaced it. It is still read when `USE_TIER_AXIS = False`. Decide whether to retire that path. | tidy-up |
+| 4 | **`01_` relabel not propagated.** `SensorElementsMC.py` and the PCB models read `01_`; 10 cells changed and those models have not been re-run. | do before step 7 |
+| 5 | **Option B** — front-corner and cabin/child-presence cameras as new components. Documented in `SENSOR_MODEL_DESIGN.md` S10.5, not built. | structural |
+| 6 | **No sensor-strategy dimension** (vision-only vs lidar-heavy). `BevWiring_STATUS.md` S10 has the analysis; substitution groups is the recommendation. | structural |
+| 7 | **SDV timing not shifted +3.6 y** to match S&P (zonal 2% 2022 -> 38% 2034). Agreed in principle, never applied. | moderate |
+| 8 | **`06_` EF ultrasonic is 8-12**; the user judged this correct on 2026-08-07 and rejected the 13-16 that project documents had quoted. That figure could not be traced to a primary source. **Do not reintroduce it.** | closed, recorded |
+| 9 | **EF +100 m** row-sum discrepancy in the source report, patched by `SEGMENT_LENGTH_CALIBRATION`. Offending row still unidentified. | small |
+
+## 13. WHAT TO DISTRUST
+
+Four things that look solid and are not:
+
+1. **V15 is a regression guard, not an independent check.** `19_ Tiers` is
+   derived from `06_`, so both sides of the comparison share a basis. It
+   catches one side being hand-edited. It cannot catch both being wrong.
+2. **V13's five "unresolvable" rows are not failures.** `01_` has four values
+   and composed presences of 0.66-0.84 land between Opt and Std. Do not widen
+   the tolerance to make them pass — the tolerance is what found the three real
+   defects.
+3. **2025 anchors cannot move**, by construction: the ADAS block is
+   renormalised to the observed 2025 baseline. If a change appears to move
+   2025, something is wrong with the change, not with the baseline.
+4. **Numbers in the source report disagree with each other.** Its per-category
+   copper column sums 13-28% short of its own totals; its EF length column sums
+   to 3,646 against a stated 3,546. Always check a report figure against its
+   own totals before treating it as ground truth.
+
