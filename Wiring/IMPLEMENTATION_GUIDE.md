@@ -103,9 +103,11 @@ All in `_adas_metres_tier()`, sampled independently per iteration.
 | **A** | hardware tier H0–H4 | `Tier_Shares`, `Tiers` | One uniform per iteration held across years plus its own timing offset — the same comonotonic scheme as the architecture driver, so a vehicle is one tier and not a blend |
 | **B** | lidar penetration | `Lidar`, `Parameters` | Separate from tier, because lidar tracks cost and Chinese competitive pressure, not certification. Band membership drawn per iteration; **the China→Europe lag is sampled** (`Normal(7, 3)`), so "China leads, Europe follows" is testable rather than assumed |
 | **C** | post-2040 scenario | `Scenarios` | Multiplier on every sensor count. Removes the need to forecast unknown sensor modalities — a wiring model needs *how many*, not *which* |
+| **D** | architecture → metres per sensor | code, `ADAS_ZONAL_METRES_TRI` | **Added 2026-08-07.** A sensor on a zonal car reaches its nearest zone controller; on a conventional car it runs to a central ECU. Uses the **caller's** architecture draw, so the same car is zonal for both its harness length and its metres-per-sensor. Conventional 1.0, Transitional half, SDV_Zonal 0.85–0.90. Set all three entries to 1.0 to switch it off |
 
-`Metres_per_Sensor` in `18_` is **reused unchanged**. The tier axis changes how
-many sensors a car has, not how much wire each one needs.
+`Metres_per_Sensor` in `18_` is read unchanged, then scaled by driver D. The
+tier axis changes how many sensors a car has; driver D changes how much wire
+each one needs, and only that.
 
 ---
 

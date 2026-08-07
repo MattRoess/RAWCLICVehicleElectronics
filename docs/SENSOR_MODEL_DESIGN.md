@@ -262,8 +262,8 @@ Each step is separately verifiable, and each stops for approval.
 | **3** | **Port the accumulator into `SensorNumbersMC.py`**, no drivers yet | **V14** — 2025 output matches today's static result | **DONE** — 915/915, worst mean 0.841% |
 | **4** | Add the year axis and the voltage driver (§3) | **V11**, **V12** | **DONE** — V11 passed, V12 = 0.000e+00 |
 | **5** | Add the tier driver from `19_ Presence_per_Tier` | **V13** | **IMPLEMENTED, NOT SIGNED OFF** — V13 21/36, four decisions open, see `HANDOVER.md` §11 |
-| **6** | Add `metres_per_sensor` architecture factor to `BevWiring.py` (§4) | wiring re-run, V1–V10 | not started |
-| **7** | PCB models, reusing all of the above | later | not started |
+| **6** | Add `metres_per_sensor` architecture factor to `BevWiring.py` (§4) | wiring re-run, V1–V10 | **DONE 2026-08-07** — 9/9; ADAS metres −5.3 to −7.4% by 2070, 2025 anchor unmoved |
+| **7** | PCB models, reusing all of the above | later | not started — **this is now the next step** |
 
 **Do not start step 6 or 7 until step 5 is signed off.** Decision 3 in
 `HANDOVER.md` §11 changes Driver A, which the wiring model also reads — so
