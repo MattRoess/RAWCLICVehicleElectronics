@@ -296,6 +296,42 @@ the rewrite can be verified before anything starts moving.
    voltage, and cell voltage is chemistry-dependent — NMC ~3.7 V, LFP ~3.2 V, so
    an LFP pack needs ~15% more cells for the same pack voltage. The triangulars
    in §3.2 absorb this as spread today. Worth its own driver later, not now.
+5. **OPTION B -- two camera components that do not exist yet. NOT IMPLEMENTED,
+   documented 2026-08-07 at the user's request as a possible scenario.**
+
+   Option A (done) raised the counts on the four camera components already in
+   `06_`. It closed the gap at H2-H4 for CD and EF. Option B instead adds the
+   two components the project has never had. It is the more faithful structure
+   and it is what the user actually described: *"cameras are essential for the
+   safety, therefore certain redundancy in viewing areas, avoid dead spots.
+   Furthermore also monitoring the driver?"*
+
+   | New component | Why | Today |
+   |---|---|---|
+   | **Front-corner / A-pillar cameras** | Cross-traffic at junctions. The front camera cannot see across the junction mouth and the side cameras look rearward, so this is a genuine dead spot, not a redundancy nicety. | Folded into `Side / mirror cameras`, which distorts what that row means |
+   | **Cabin / child-presence camera** | Occupant detection in `06_` is weight/pressure mats, capacitive sensors and belt buckles -- **not vision**. Euro NCAP and GSR-2 phase 2 push camera- or radar-based child presence detection. Driver monitoring exists; the rest of the cabin is unmonitored. | Absent from `01_`, `06_` and `19_` |
+
+   **Cost of doing it.** A new ADAS component needs a row in three files, and
+   they must be added together or the tier driver breaks:
+
+   1. `Data/01_VehicleElectronics.xlsx` -- the component master
+   2. `Data/06_VehicleSensorNumbers.xlsx` -- element counts per segment
+   3. `Data/19_ADAS_sensor_adoption.xlsx` sheet `Presence_per_Tier` -- when it
+      arrives, per tier. **Add it to `tools/make_19_adas_sensor_adoption.py`,
+      not to the workbook**, or the next regeneration deletes it.
+   4. `19_` sheet `Modules_vs_Elements` -- its PRIMARY element, so V15 keeps
+      holding
+
+   A component present in `06_` but missing from `Presence_per_Tier` is
+   silently skipped by the tier composition -- it will not raise an error, it
+   will simply never appear. That is the failure mode to watch for.
+
+   **Suggested starting values** (front-corner 0-2 / 0-2 / 2-2 across AB/CD/EF,
+   cabin camera 0-1 / 0-1 / 1-1) with presence rising H0 0.0 -> H4 1.0 for the
+   corner cameras and H0 0.0 -> H4 0.8 for the cabin camera. Not sourced --
+   they would need the same FACT / DERIVED / ASSUMPTION tagging as everything
+   else in the adoption report.
+
 3. **`SensorElementsMC.py` also reads `01_` and `06_`** and will inherit the
    year axis whether or not it is planned for. It is not in the order above.
 4. **`Data/11_PCB_Distribution_Classified.csv` is 0 bytes**, so `PCBAreaMC` may

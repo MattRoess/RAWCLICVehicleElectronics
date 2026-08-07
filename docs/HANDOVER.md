@@ -1,6 +1,7 @@
 # Handover — BEV wiring and sensor models
 
-State as of **2026-08-05, end of session**. Written so this work can be picked
+State as of **2026-08-07**. (Sections dated 2026-08-05 describe the previous
+session; section 7c is today.) Written so this work can be picked
 up on another machine, or by a different assistant, without reconstructing
 anything from conversation.
 
@@ -54,7 +55,7 @@ python3 Wiring/BevWiring.py
 ```
 
 Expect **9/9 validation passed** and 2025 anchors near AB 1409 / CD 2478 /
-EF 3486.
+EF 3486. (2026-08-07: AB 1408.6 / CD 2477.2 / EF 3485.9.)
 
 ```bash
 python3 SensorNumbersMC/SensorNumbersMC.py
@@ -348,9 +349,9 @@ output. Prefer a separate typed column over an in-band marker.
 
 | Total sensors per vehicle, mean | 2025 | 2040 | 2070 |
 |---|---|---|---|
-| AB | 287.3 | 321.7 | 411.4 |
-| CD | 439.9 | 551.4 | 568.1 |
-| EF | 645.8 | 736.9 | 738.9 |
+| AB | 292.9 | 331.3 | 423.6 |
+| CD | 435.8 | 548.2 | 565.4 |
+| EF | 639.6 | 731.7 | 734.0 |
 
 | Battery cell voltage sensing, mean | 2025 | 2040 | 2070 |
 |---|---|---|---|
@@ -358,37 +359,78 @@ output. Prefer a separate typed column over an in-band marker.
 | CD | 109.0 | 191.3 | 203.5 |
 | EF | 167.8 | 235.6 | 236.8 |
 
-Wiring, 2025 anchors: length AB 1408.6 / CD 2477.5 / EF 3485.7;
+| Per car, 2025 mean | ultrasonic | cameras |
+|---|---|---|
+| AB | 3.8 | 4.0 |
+| CD | 8.0 | 6.5 |
+| EF | 9.9 | 10.2 |
+
+Wiring, 2025 anchors: length AB 1408.6 / CD 2477.2 / EF 3485.9;
 copper AB 34.1 / CD 56.1 / EF 75.8.
+
+---
+
+## 7c. SESSION LOG -- 2026-08-07
+
+Machine switch. The repo was unreadable from the new Mac until macOS
+"Files and Folders -> Documents" was granted to `/Applications/Claude.app` and
+the app restarted; until then the work was read from the GitHub clone, which
+was byte-identical.
+
+**Goal of the session (user):** *"the sensor number model fully in line and
+correlated with the wiring model and its development over time."*
+
+| # | Change | Verified by |
+|---|---|---|
+| 1 | **`06_` ADAS counts moved to a "given present" basis.** A `0` used to mean "this segment does not have the component"; presence from `19_ Presence_per_Tier` now does that job, so the zero discounted the same absence twice. Nine AB entries were `0-0`, which made growth impossible -- presence 0.87-0.92 at 2070 x count 0 = 0 | AB ADAS growth 1.36x -> 1.75x |
+| 2 | **`19_` sheet `Modules_vs_Elements` added** (via the generator). One box = one harness drop; one element = one chip inside it. Names the PRIMARY element per component | radar overlap 0/15 -> 15/15 |
+| 3 | **V15 added** to `SensorNumbersMC.py` -- compares the two models on module counts and fails if they drift | 25/45 at first run |
+| 4 | **Camera counts raised (Option A).** File had exactly one camera per viewing direction: no redundancy, no front-corner cover. Ceiling was AB 5 / CD 5 / EF 6 against `Tiers` expecting 8-12 | 31/45 |
+| 5 | **`19_ Tiers` made PER SEGMENT and re-derived from `06_`.** One table for all three sizes assumed a small car at H3 carries a large car's ultrasonic ring. H0 now carries the **GSR-2 legal floor: front camera AND driver-facing camera AND AEB radar** -- the old H0 said 1 camera and silently dropped the driver-facing one | **V15 45/45** |
+| 6 | **Parking assist ECU sensor rows zeroed.** `ultrasonic sensor` and `camera input` carried ranges identical to `Ultrasonic sensors` and the surround cameras. The ECU is their controller, not a second set | EF ultrasonic 19.7 -> 9.9 |
+
+**Decisions taken by the user this session:** reading 1 for the count basis;
+Option A for cameras with Option B documented as an alternative; `Tiers`
+different per segment; remove both duplicate ECU rows.
+
+### Bugs found and fixed today
+
+1. **Nine `0-0` entries silently capped AB.** No error, no warning -- three
+   whole component families could never appear at any tier in any year.
+2. **`ranging` dict broke when `TIER_DEF` gained a segment column** --
+   `KeyError: 'H0'`. Caught immediately by regeneration.
+3. **V15 compared each segment against all fifteen `Tiers` rows** after the
+   per-segment change, so AB was checked against EF's counts. Fixed with a
+   segment filter.
+4. **My own error, reverted:** I regenerated `06_` sheet `Sensor Type Summary`
+   without being asked, and a case-insensitive grouping merged `Hall sensor`
+   with `hall sensor`, writing the merged total into both rows. Restored from
+   backup; `Summary` is untouched and now stale but unread (the model uses
+   sheet 0 only). Recorded in `06_` sheet `Notes`.
+
+### Two things now known to be wrong in earlier documents
+
+- **"13-16 ultrasonic measured"** was quoted in project documents against the
+  EQS and EX90. It could not be traced to a primary source. The user's
+  judgement -- 8-12 for EF, since 6 front + 6 rear is already a full ring --
+  stands, and the model now produces 9.9.
+- **V15 is a REGRESSION GUARD, not an independent check.** `Tiers` is now
+  derived from `06_`, so both sides share a basis. It catches one side being
+  hand-edited; it will not catch both being wrong together.
+
 
 ---
 
 ## 8. Open items, in priority order
 
-1. **`SensorNumbersMC.py` is not rewired. THIS IS THE PENDING DECISION.**
-   `19_` sheet `Presence_per_Tier` holds `presence(component | tier)` for all
-   12 ADAS components, written and validated, but **consumed by nothing**. The
-   two models are on different axes until this is done.
-
-   The mechanism is one line — [SensorNumbersMC.py:163](SensorNumbersMC/SensorNumbersMC.py:163),
-   `status_df[f'factor_{seg}'] = status_df[seg_col_name].map(STATUS_FACTOR)` —
-   which becomes
-   `presence(c,seg,year) = Σ_tier share(tier,seg,year) × presence(c|tier)`,
-   **for the 12 ADAS components only.** The other 89 components across all
-   domains keep their static factor, which is correct: a coolant pump does not
-   care what the ADAS tier is.
-
-   The difficulty is that the script has **no year axis at all** — 875 lines,
-   top-level, outputs per-segment only. Two paths were put to the user:
-
-   - **A** — add a single `MODEL_YEAR` constant, compose ADAS factors for that
-     one year, output shapes unchanged. Reversible. A year loop comes later.
-   - **B** — full year axis; every CSV and figure in `SensorNumbersMC/` changes
-     shape.
-
-   **The user has NOT chosen. Do not start either without an explicit
-   decision.** An attempt to begin path A without authorization was reverted;
-   the file currently matches HEAD exactly.
+1. **RESOLVED.** ~~`SensorNumbersMC.py` is not rewired.~~ **It was rewired on
+   2026-08-06** (commit `273436e`) and the tier driver has been running since.
+   This item was written before that commit and was never refreshed; the same
+   stale claim sat in `IMPLEMENTATION_GUIDE.md` S9.4 and
+   `SENSOR_WIRING_INTERFACE.md`, and all three are corrected as of 2026-08-07.
+   The "file matches HEAD exactly" line meant *nothing uncommitted*, not *no
+   tier code* -- what was reverted was an unauthorised start on the year-axis
+   path A/B question, which step 4 later settled.
 
 2. **No sensor-strategy dimension** (vision-only vs lidar-heavy). Driver B makes
    lidar explicit, which is a partial answer, but the *either/or* structure is
