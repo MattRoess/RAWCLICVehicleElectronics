@@ -162,6 +162,24 @@ HV_800V_CU_REDUCTION_TRI = (0.40, 0.425, 0.45)
 HV_GROUP = "HV Power"
 ADAS_GROUP = "ADAS / Sensor"     # driven by sensor counts, not by architecture
 
+# ADAS metres-per-sensor saving under zonal architecture | UNIT: dimensionless
+# multiplier on metres per sensor at FULL zonal (the SDV_Zonal state).
+#
+# WHY MODEST. Zonal connects a sensor to its nearest zone controller instead of
+# a central ECU, so runs shorten. But the compressible part is ALREADY counted
+# elsewhere in 17_: LVDS_CAM carries an SDV factor of 0.85, COAX_RF 0.95, and
+# ETH_BUS 3.00 for the backbone that replaces them. What is left in the ADAS
+# block is the dedicated and power wiring out to the body extremities -- the
+# least compressible part of any harness, because routing follows existing
+# looms and high-speed links carry bend-radius and EMC constraints.
+# Double-counting the same saving twice is the failure mode this guards against.
+#
+# Conventional = 1.0 (no saving). Transitional = half the saving, since domain
+# controllers consolidate partially. SDV_Zonal = the sampled value.
+# EFFECT: set all three entries to 1.0 to switch the driver off entirely.
+# ASSUMPTION -- design note section 4. Deliberately modest.
+ADAS_ZONAL_METRES_TRI = (0.85, 0.875, 0.90)
+
 # Car-to-car variability, split into a shared and an independent part
 # (source report section 8.5). UNIT: coefficient of variation, dimensionless.
 CV_VEHICLE = 0.10      # "+/-8-12% at the total vehicle level"
@@ -626,7 +644,7 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
 
         # ---- ADAS/sensor categories: driven by SENSOR COUNT, not architecture
         if inp.tier_shares is not None:
-            cnt = _adas_metres_tier(rng, inp, seg, years, n_iter, met)
+            cnt = _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch)
         else:
             cnt = np.zeros((n_iter, n_years))
             for si, stype in enumerate(sensor_types):
@@ -683,7 +701,7 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
                     inp.codes, inp.groups, per_category, totals, diag)
 
 
-def _adas_metres_tier(rng, inp, seg, years, n_iter, met):
+def _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch):
     """ADAS wire metres per vehicle, from the hardware-tier axis (drivers A/B/C).
 
     Args:
@@ -693,9 +711,15 @@ def _adas_metres_tier(rng, inp, seg, years, n_iter, met):
         seg:    "AB" | "CD" | "EF".
         years:  (n_years,) UNIT: calendar years.
         n_iter: iterations.
-        met:    Metres_per_Sensor, indexed (Sensor_Type, Segment). REUSED
-                UNCHANGED from 18_ -- the tier axis changes how many sensors a
-                car has, not how much wire each one needs.
+        met:    Metres_per_Sensor, indexed (Sensor_Type, Segment). Read from
+                18_ unchanged -- the tier axis changes how many sensors a car
+                has, not how much wire each one needs. Since 2026-08-07 it is
+                then scaled by the vehicle's ARCHITECTURE (driver D below).
+        st_arch: (n_iter, n_years) architecture state index drawn by the
+                caller. Passed in rather than re-drawn so the SAME vehicle's
+                architecture governs both its harness length and its
+                metres-per-sensor -- re-drawing here would model a car that is
+                zonal for one purpose and conventional for the other.
 
     Returns:
         (n_iter, n_years) metres of ADAS wiring, before the 2025 rescale the
@@ -718,6 +742,12 @@ def _adas_metres_tier(rng, inp, seg, years, n_iter, met):
          iteration by weight (Active_Scenario = SAMPLE, so one run's band spans
          all three) or pinned. Identical to 1.0 at and before
          SCENARIO_START_YEAR by construction.
+
+      D  ARCHITECTURE. Metres per sensor shrink under zonal, because a sensor
+         reaches its nearest zone controller instead of a central ECU. Uses the
+         caller's architecture draw, so this is the OTHER HALF of the same
+         physical trade: architecture shortens the wiring while more sensors
+         lengthen it, and both act on the same simulated car.
     """
     n_years = len(years)
 
@@ -749,6 +779,22 @@ def _adas_metres_tier(rng, inp, seg, years, n_iter, met):
     mult_tab = np.vstack([inp.scen_mult[s] for s in inp.scen_names])  # (n_scen,n_years)
     mult = mult_tab[pick]                                             # (n_iter,n_years)
 
+    # --- D: architecture factor on metres per sensor, from the CALLER's draw
+    _lo, _mo, _hi = ADAS_ZONAL_METRES_TRI
+    if _hi <= _lo:
+        # Degenerate triple, e.g. (1.0, 1.0, 1.0) to switch the driver off.
+        # rng.triangular raises on left == right, so handle it rather than
+        # making the documented escape hatch crash.
+        f_zonal = np.full(n_iter, float(_lo))
+    else:
+        f_zonal = rng.triangular(_lo, min(max(_mo, _lo), _hi), _hi, size=n_iter)
+    arch_levels = np.stack([np.ones(n_iter),              # Conventional
+                            1.0 - (1.0 - f_zonal) / 2.0,  # Transitional: half
+                            f_zonal])                     # SDV_Zonal: full
+    arch_mult = np.take_along_axis(
+        arch_levels[:, :, None].repeat(n_years, axis=2),
+        st_arch[None, :, :], axis=0)[0]                   # (n_iter, n_years)
+
     # --- compose
     cnt = np.zeros((n_iter, n_years))
     for stype in SENSOR_TYPES:
@@ -762,7 +808,7 @@ def _adas_metres_tier(rng, inp, seg, years, n_iter, met):
         if stype == "lidar":
             drawn = drawn * equipped
         m = rng.triangular(*_tri_m(met, stype, seg), size=n_iter)[:, None]
-        cnt += drawn * mult * m
+        cnt += drawn * mult * m * arch_mult
     return cnt
 
 
