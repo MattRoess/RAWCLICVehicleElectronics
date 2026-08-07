@@ -83,8 +83,20 @@ TIER_DEF = [
 ]
 # --- report section 4.1 -----------------------------------------------------
 TIER_SHARES = {
-    "EF": {2025: (0.00, 0.10, 0.25, 0.50, 0.15),
-           2030: (0.00, 0.05, 0.15, 0.50, 0.30),
+    # EF near-term H4 CORRECTED 2026-08-07 (report S9.0, decision 3 in
+    # HANDOVER S11). H4 means redundant, liability-transfer hardware -- Drive
+    # Pilot and Personal Pilot class. 2025 said 15% of EF sales; the Yano
+    # cross-check put the model 6x above observation at 2025 while agreeing to
+    # 1.10 at 2035, so the error is in the NEAR TERM, not the shape.
+    #
+    # Independent confirmation: with H4 at 0.15 the composed lidar presence for
+    # EF came to 0.15 x 0.80 = 0.12, against a real 2025 fitment near 0.005.
+    # Two separate routes to the same conclusion.
+    #
+    # Share moved to H3, the adjacent tier. 2035 onward is UNCHANGED because
+    # the external check agrees there.
+    "EF": {2025: (0.00, 0.10, 0.25, 0.62, 0.03),
+           2030: (0.00, 0.05, 0.15, 0.60, 0.20),
            2035: (0.00, 0.00, 0.10, 0.45, 0.45),
            2040: (0.00, 0.00, 0.05, 0.40, 0.55),
            2050: (0.00, 0.00, 0.00, 0.35, 0.65),

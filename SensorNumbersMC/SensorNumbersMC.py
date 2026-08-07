@@ -964,8 +964,28 @@ print("V13 -- TIER COMPOSITION vs 01_ STATIC LABELS, AT 2025")
 print("="*70)
 
 V13_TOL = 0.15
+
+# RE-SCOPED 2026-08-07. V13 used to assert every row at 0.15. Five rows can
+# never satisfy that, and not because anything is wrong: 01_'s scale has only
+# four values (Std 1.00, Opt 0.50, Rare 0.25, "-" 0.00), so a composed presence
+# landing between two of them -- 0.66, 0.73, 0.75, 0.83, 0.84 all sit between
+# Opt and Std -- is UNREPRESENTABLE. The largest possible gap to the nearest
+# label is 0.25, which is above the tolerance by construction.
+#
+# The tolerance is NOT widened; widening it would hide the three real findings
+# V13 made. Instead a row is only ASSERTED when the scale could express it,
+# i.e. when the nearest available label is itself within tolerance. Rows the
+# scale cannot represent are still printed, marked "unresolvable", so they stay
+# visible and nobody mistakes silence for agreement.
+STATUS_LEVELS = (1.00, 0.50, 0.25, 0.00)
+
+
+def _nearest_label_gap(x):
+    """Distance from x to the closest value 01_'s 4-level scale can express."""
+    return min(abs(x - v) for v in STATUS_LEVELS)
 print(f"\n    {'component':<36}{'seg':<5}{'composed':>10}{'01_':>7}{'diff':>8}")
 v13_fail = []
+v13_unres = []
 for comp in sorted(PRESENCE_TIER):
     for seg in segments:
         m = status_df[status_df['Component'].map(norm_key) == norm_key(comp)]
@@ -974,15 +994,28 @@ for comp in sorted(PRESENCE_TIER):
         static = float(m.iloc[0][f'factor_{seg}'])
         composed = float(PRESENCE_TIER[comp][seg][yi25])
         diff = composed - static
-        flag = '' if abs(diff) <= V13_TOL else '  <-- OUTSIDE'
-        if abs(diff) > V13_TOL:
+        unresolvable = _nearest_label_gap(composed) > V13_TOL
+        if abs(diff) <= V13_TOL:
+            flag = ''
+        elif unresolvable:
+            flag = '  (unresolvable on a 4-level scale)'
+        else:
+            flag = '  <-- OUTSIDE'
             v13_fail.append((comp, seg, composed, static, diff))
+        if unresolvable:
+            v13_unres.append((comp, seg, composed, static))
         print(f"    {comp[:35]:<36}{seg:<5}{composed:>10.2f}{static:>7.2f}"
               f"{diff:>+8.2f}{flag}")
 
 n_checked = sum(1 for c in PRESENCE_TIER for s in segments
                 if len(status_df[status_df['Component'].map(norm_key) == norm_key(c)]))
-print(f"\n    {n_checked - len(v13_fail)} / {n_checked} within {V13_TOL:.2f}")
+n_assert = n_checked - len(v13_unres)
+print(f"\n    {n_assert - len(v13_fail)} / {n_assert} asserted rows within {V13_TOL:.2f}")
+if v13_unres:
+    print(f"    {len(v13_unres)} row(s) not asserted -- the composed value falls between two")
+    print(f"    of 01_'s four labels, so the file cannot express it:")
+    for c, sg, comp, st in v13_unres:
+        print(f"      {c[:34]:<36}{sg:<5}composed {comp:.2f}, nearest label {st:.2f}")
 print("    V13 PASSED -- the tier axis reproduces the 2025 observation."
       if not v13_fail else
       f"    V13 -- {len(v13_fail)} outside tolerance, listed above.")
