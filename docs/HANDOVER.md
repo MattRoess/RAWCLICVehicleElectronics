@@ -66,9 +66,13 @@ failing is the current known state, see §11.
 
 ### 3. WHERE WE STOPPED
 
-Step 5 of 7 is **implemented and running**, but **not signed off**: V13 fails
-and four decisions are open. They are listed in §11 with a recommendation for
-each. Nothing should be built on top of step 5 until those are settled.
+**Step 5 of 7 is DONE and signed off (2026-08-07).** All four decisions in §11
+are resolved and every validation passes: V11, V12, V13 31/31 asserted,
+V14 915/915, V15 45/45, wiring 9/9.
+
+**The next step is step 6** -- the `metres_per_sensor` architecture factor in
+`BevWiring.py` (design note §4). It is the last structural piece and it is a
+code change, not a data change.
 
 ---
 
@@ -389,6 +393,10 @@ correlated with the wiring model and its development over time."*
 | 5 | **`19_ Tiers` made PER SEGMENT and re-derived from `06_`.** One table for all three sizes assumed a small car at H3 carries a large car's ultrasonic ring. H0 now carries the **GSR-2 legal floor: front camera AND driver-facing camera AND AEB radar** -- the old H0 said 1 camera and silently dropped the driver-facing one | **V15 45/45** |
 | 6 | **Parking assist ECU sensor rows zeroed.** `ultrasonic sensor` and `camera input` carried ranges identical to `Ultrasonic sensors` and the surround cameras. The ECU is their controller, not a second set | EF ultrasonic 19.7 -> 9.9 |
 
+| 7 | **`01_` relabelled, 10 cells.** Front camera and front radar on AB Opt -> Std (GSR-2, mandated since Jul 2024). Driver monitoring AB "-" -> Opt, **not Std** -- ADDW is only mandatory from Jul 2026 and V13 checks 2025. Plus side cameras, corner radars, CD lidar, CD central computer, and the basic camera ECU on AB and EF | V13 10 of 15 failures cleared |
+| 8 | **V13 re-scoped, tolerance untouched.** Five rows can never pass: `01_` has four values and composed presences of 0.66-0.84 land between Opt and Std, so the worst-case gap is 0.25 against a 0.15 tolerance. A row is now asserted only when the scale could express it; the rest print as "unresolvable" and stay visible | **V13 31/31 asserted** |
+| 9 | **EF near-term H4 corrected.** 2025 0.15 -> 0.03, 2030 0.30 -> 0.20, moved to H3. 2035 onward unchanged because the Yano check agrees there (1.10 at 2035 against 6x at 2025). EF lidar presence 0.12 -> 0.03, overshoot 24x -> 6x | V13 still 31/31, wiring 9/9 |
+
 **Decisions taken by the user this session:** reading 1 for the count basis;
 Option A for cameras with Option B documented as an alternative; `Tiers`
 different per segment; remove both duplicate ECU rows.
@@ -466,67 +474,30 @@ different per segment; remove both duplicate ECU rows.
 
 ---
 
-## 11. THE FOUR OPEN DECISIONS — start here tomorrow
+## 11. THE FOUR DECISIONS -- ALL RESOLVED 2026-08-07
 
-Step 5 is implemented and running, but **V13 fails 15 of 36** and should not be
-signed off until these are settled. Nothing should be built on top until then.
+Kept as the record of what V13 found and how each was settled. **Nothing here
+is outstanding.**
 
-### What V13 does, and what it found
-
-`01_`'s Std / Opt / Rare factor is a 2025 observation. The tier composition
-replaces it with a curve. At 2025 the two must agree, or the new axis is
-describing a different vehicle from the one the file recorded. Tolerance 0.15.
-
-**The failures are not random — they fall into three kinds, and in most of them
-the tier table looks more right than `01_`.**
-
-**(a) `01_` is demonstrably stale — the tier table is right**
-
-| | composed | `01_` |
+| # | Decision | Resolution |
 |---|---|---|
-| Front ADAS camera, AB | **1.00** | 0.50 (Opt) |
-| Front long-range radar, AB | **1.00** | 0.50 (Opt) |
-| Driver monitoring camera, AB / CD | 0.41 / 0.66 | 0.00 / 0.25 |
+| **1** | Update `01_`'s GSR-2 rows | **DONE.** Front camera and front radar on AB Opt -> Std. Driver monitoring AB "-" -> **Opt, not Std** -- ADDW is only mandatory from Jul 2026 and V13 checks 2025, so Std would have been wrong in the other direction. Seven further stale cells relabelled at the same time |
+| **2** | Accept the camera-ECU divergence as correct-by-design | **DONE**, and better than expected. Relabelling handled AB and EF outright (AB -> Std, EF -> Rare, the domain controller absorbing it). Only the CD row remains, and it is not excluded by hand -- it falls out through the resolution rule in decision 4 |
+| **3** | Revisit EF's H4 share | **DONE.** 2025 0.15 -> 0.03, 2030 0.30 -> 0.20, moved to H3. 2035 onward untouched: the Yano check agrees there (1.10) and disagrees only near term (6x) |
+| **4** | Leave V13 failing, or re-scope | **RE-SCOPED, tolerance untouched.** Five rows cannot pass because `01_` has four values and composed presences of 0.66-0.84 land between Opt and Std -- worst-case gap 0.25 against a 0.15 tolerance. A row is asserted only when the scale could express it; the rest print as "unresolvable on a 4-level scale" and stay visible |
 
-EU **GSR-2 has mandated** a front camera, AEB radar and driver attention
-monitoring on every new registration **since July 2024**. `01_` still calls them
-optional on small cars — it predates the regulation. The tier table pins H0 at
-1.00 for exactly this reason.
+**The warning in the original version still stands and was honoured:** the
+tolerance was NOT widened. Widening it would have hidden the three real
+findings -- that `01_` was stale in several places, that one row is a genuine
+substitution, and that the tier table was wrong on EF H4.
 
-**(b) A substitution the static label cannot express — right by design**
+### What V13 found, and why it was worth building
 
-`ADAS camera ECU (basic)`, EF: composed **0.34** vs `01_` 1.00. That row
-declines 1.00 → 0.10 across tiers as the smart camera is absorbed into the
-domain controller. EF in 2025 is mostly H3/H4, so most EF cars no longer carry a
-separate camera ECU. A four-level ordinal label cannot say "this component is
-being replaced".
+V13 was built to catch the tier axis drifting from its source. What it actually
+caught was that **the source was stale and the tier table was wrong** -- in
+opposite directions, in the same check. Both would have been invisible without
+it, and both changed real numbers.
 
-**(c) The tier table itself looks wrong in one place**
-
-`LiDAR sensor`, EF: composed **0.12** against a real-world ~0.5%. Driver B
-correctly gives ~1%, but `Presence_per_Tier` floors H4 at 0.80 and Driver A puts
-EF at **15% H4 in 2025**. 0.15 × 0.80 = 0.12.
-
-H4 means redundant, liability-transfer hardware — Drive Pilot and Personal
-Pilot. That was never 15% of EF sales. **This is the same finding as report
-§9.0**, where the Yano units cross-check showed Driver A's low end too
-aggressive. Two independent routes to the same conclusion.
-
-### The decisions
-
-| # | Decision | Recommendation |
-|---|---|---|
-| **1** | Update `01_`'s GSR-2 rows — front camera, front radar, driver monitoring → `Std` for AB? | **Yes.** The regulation is a fact and the file is stale |
-| **2** | Accept the camera-ECU divergence as correct-by-design and exclude it from V13? | **Yes.** It is the substitution the whole tier axis exists to express |
-| **3** | Revisit EF's H4 share in `19_ Tier_Shares` — is 15% at 2025 too high? | **Yes, but as its own step.** It changes Driver A, which the wiring model also reads |
-| **4** | Leave V13 failing as a documented finding, or re-scope it to assert only what should agree? | **Re-scope.** Keep the informational rows visible |
-
-**Do not widen the tolerance until it passes.** V13 was built to catch the tier
-axis drifting from its source. What it actually caught is that the source is
-stale in three places and the tier table is wrong in one. Both findings vanish
-if the threshold is loosened.
-
----
 
 ## 9. Errors corrected on 2026-08-05 — do not reintroduce
 
