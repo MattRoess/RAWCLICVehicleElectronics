@@ -140,7 +140,7 @@ fatal. V1 and V8 wobble at low iteration counts.
 
 | To change | Edit |
 |---|---|
-| Tier adoption by segment and year | `19_` sheet `Tier_Shares`, yellow cells |
+| Tier adoption by segment and year | `19_` sheet `Tier_Shares`, yellow cells. **EF near-term H4 corrected 2026-08-07**: 2025 0.15 -> 0.03, 2030 0.30 -> 0.20 (report S9.0 Yano check, 6x high at 2025; 2035+ agrees and is unchanged) |
 | Sensor counts per tier **per segment** | `19_` sheet `Tiers` -- 15 rows since 2026-08-07 |
 | Which chip equals one box | `19_` sheet `Modules_vs_Elements` |
 | Lidar path or its band | `19_` sheet `Lidar` |
