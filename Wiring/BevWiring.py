@@ -688,8 +688,14 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
         totals[(METRIC_LENGTH, seg)] = length.sum(axis=1)
         totals[(METRIC_CU, seg)] = cu_kg.sum(axis=1)
         diag[("arch", seg)] = arch_sh
-        diag[("autonomy", seg)] = aut_sh
         diag[("volt", seg)] = inp.volt[seg]
+        # Retained ONLY for the USE_TIER_AXIS=False fallback path. Since
+        # 2026-08-06 the SAE level does not drive ADAS content -- the hardware
+        # tier does. Kept out of the drivers figure for that reason.
+        diag[("autonomy", seg)] = aut_sh
+        if inp.tier_shares is not None:
+            diag[("tier", seg)] = inp.tier_shares[seg]
+            diag[("lidar", seg)] = inp.lidar[1]        # Mode band
 
     for seg, j_seg in J_SUFFIX.items():
         adder = rng.triangular(*HEIGHT_ADDER_TRI, size=(n_iter, 1))
@@ -1119,21 +1125,57 @@ def plot_totals(result, out_path):
 
 
 def plot_drivers(result, out_path):
+    """The drivers that actually move the answer.
+
+    CORRECTED 2026-08-10. This figure used to show "Autonomy L3 or better" as
+    one of "the three independent drivers". That has been false since
+    2026-08-06: ADAS content is driven by the installed HARDWARE TIER, not by
+    the SAE certification level, and the autonomy shares survive only in the
+    USE_TIER_AXIS=False fallback path. Anyone reading the old figure would
+    reasonably have concluded the certificate still drives sensor content --
+    which is the exact misconception the tier axis exists to remove.
+    """
     plt = _plt()
     colors = {"AB": "#1f77b4", "CD": "#ff7f0e", "EF": "#2ca02c"}
-    fig, axes = plt.subplots(1, 3, figsize=(17, 4.6))
+    has_tier = ("tier", BASE_SEGMENTS[0]) in result.diagnostics
+    n_panels = 4 if has_tier else 3
+    fig, axes = plt.subplots(1, n_panels, figsize=(4.4 * n_panels, 4.6))
+    axes = np.atleast_1d(axes)
+
     for seg in BASE_SEGMENTS:
         axes[0].plot(result.years, 100 * result.diagnostics[("arch", seg)][2],
                      color=colors[seg], lw=1.8, label=seg)
         axes[1].plot(result.years, 100 * result.diagnostics[("volt", seg)],
                      color=colors[seg], lw=1.8, label=seg)
-        aut = result.diagnostics[("autonomy", seg)]
-        axes[2].plot(result.years, 100 * aut[3:].sum(axis=0),
-                     color=colors[seg], lw=1.8, label=seg)
-    for ax, t in zip(axes, ("SDV / zonal architecture", "800V", "Autonomy L3 or better")):
-        ax.set_title(t); ax.set_xlabel("Year"); ax.set_ylabel("% of new vehicles sold")
+        if has_tier:
+            # H3 or better: the "L2++" hardware step, which is where the sensor
+            # count actually jumps. TIERS = H0..H4, so index 3 upward.
+            tier = result.diagnostics[("tier", seg)]
+            axes[2].plot(result.years, 100 * tier[3:].sum(axis=0),
+                         color=colors[seg], lw=1.8, label=seg)
+        else:
+            aut = result.diagnostics[("autonomy", seg)]
+            axes[2].plot(result.years, 100 * aut[3:].sum(axis=0),
+                         color=colors[seg], lw=1.8, label=seg)
+
+    if has_tier:
+        # Driver B is one European curve, not per segment.
+        axes[3].plot(result.years, 100 * result.diagnostics[("lidar", BASE_SEGMENTS[0])],
+                     color="#7f7f7f", lw=2.0, label="Europe, mode")
+        titles = ("SDV / zonal architecture", "800V",
+                  "Hardware tier H3 or better", "Lidar equipped (Driver B)")
+    else:
+        titles = ("SDV / zonal architecture", "800V", "Autonomy L3 or better")
+
+    for ax, t in zip(axes, titles):
+        ax.set_title(t); ax.set_xlabel("Year")
+        ax.set_ylabel("% of new vehicles sold")
         ax.grid(alpha=0.3); ax.legend(fontsize=8)
-    fig.suptitle("The three independent drivers (mode shares)", fontsize=12)
+
+    sub = ("The drivers (mode shares). ADAS content follows the HARDWARE TIER, "
+           "not the SAE certificate." if has_tier
+           else "The three independent drivers (mode shares) -- LEGACY SAE-level axis")
+    fig.suptitle(sub, fontsize=12)
     plt.tight_layout(rect=[0, 0, 1, 0.93]); plt.savefig(out_path, dpi=140); plt.close(fig)
 
 
