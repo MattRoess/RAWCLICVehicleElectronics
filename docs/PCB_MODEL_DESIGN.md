@@ -138,6 +138,124 @@ The wiring model already quantifies the same mechanism from the other side:
 `17_` gives `LV_FUSE` an SDV factor of **0.65** and `CAN_BUS` **0.45**. The PCB
 side of that trade has never been modelled.
 
+**Magnitude anchors** (FACT): a premium 2020 vehicle carried **80–150 discrete
+ECUs**; a fully realised zonal architecture reduces that to **fewer than 20**.
+VW's SSP, from 2026, targets **ECUs down >50% and wiring down 40%** — and `17_`
+already has wiring at −25% to −55% by category, so the two are consistent.
+**55.5% of EF PCB area** sits in controller-like components (64 of 101), which
+is the pool this driver can touch.
+
+### 2.2a SUBSTITUTION GROUPS — the P-b mechanism, and a present-day defect
+
+**Researched 2026-08-10. This changes P-b from a scaling table into a much
+smaller and safer thing, and fixes an error that exists today.**
+
+#### The problem, concretely
+
+A car needs its battery charged from the wall (**on-board charger**) and needs
+12 V made for lights and windows (**DC/DC converter**). Older designs use two
+separate boxes; newer designs put both jobs in one **Combined OBC + DC/DC
+module**. **A car has one arrangement or the other, never both.**
+
+`01_` lists all three, and marks each `Std` for EF — which the model reads as
+*"every car has this"*. So an EF vehicle is credited with a charger, a
+converter, **and** a box that is a charger-and-converter.
+
+| EF, board area | mm² |
+|---|---|
+| On-board charger | 1,094 |
+| HV-LV DC/DC converter | 1,094 |
+| Combined OBC + DC/DC module | 1,370 |
+| **counted today** | **3,558** |
+| a real car would carry | ~1,370–2,188 |
+| **overcount** | **~2,189 = 8.5% of EF area** |
+
+The same happens in the cockpit — separate head unit and instrument cluster
+listed alongside the *Combined cluster+infotainment SoC*: another **5.1%**.
+
+**Across both, roughly 12–14% of PCB area per segment.** The entire ADAS domain,
+for comparison, is 3.9%.
+
+**User's reading, confirmed 2026-08-10: these are alternatives — a mixture of
+two designs, not additive.**
+
+#### The five groups
+
+Every one of them already exists in `01_` as separate rows. **No new components
+are needed.**
+
+| # | Group total | Discrete option | Integrated option | Split driven by |
+|---|---|---|---|---|
+| **G1** | charging + 12 V conversion, 1 per car | OBC **+** HV-LV DC/DC | **Combined OBC + DC/DC module** | voltage (800V) + integration trend |
+| **G2** | drive units, 1–2 per car by AWD | Main / Rear traction inverter **+** motor | **Integrated e-axle (motor+inv+gear)** | integration trend |
+| **G3** | cockpit compute, 1 per car | Head unit **+** digital instrument cluster | **Combined cluster+infotainment SoC** | architecture (SDV) |
+| **G4** | vehicle control | BCM, door modules, discrete ECUs | domain controllers → **Zone controller** | **architecture, directly** |
+| **G5** | ADAS compute | ADAS camera ECU (basic) | domain controller → central computer | ADAS tier — **already built**, `Presence_per_Tier` row 9 |
+
+#### G4 needs no new data at all
+
+This is the useful discovery. `01_`'s components map **one-to-one onto the three
+architecture states the model already samples**:
+
+| Architecture state (`18_`) | `01_` components |
+|---|---|
+| Conventional | BCM, door control modules, discrete ECUs |
+| Transitional | Powertrain / Chassis / Body-comfort **domain controllers** |
+| SDV_Zonal | **Zone controller (front/rear/etc.)**, central compute |
+
+So G4's split probability **is** the architecture share already in `18_` sheet
+`Penetration`. Nothing to invent, nothing to source. The one group with the
+largest reach is the one that costs nothing to specify.
+
+#### Is the shift a trend, or just a design preference?
+
+**A trend, and it is measurable** (FACT):
+
+| | |
+|---|---|
+| Integrated inverter-OBC-DC/DC market | **$2.82 bn (2024) → $12.08 bn (2033)**, 17.6% CAGR |
+| Integrated OBC + DC/DC market | $2.5 bn (2025), **20% CAGR** |
+| Status in 2026 | described as the **mainstream trend** — weight, cost, efficiency, reliability |
+
+Integration goes further than two-in-one: **3-in-1** units fold the traction
+inverter in as well, which is G1 and G2 merging.
+
+`01_` already encodes the same trend as a *segment* gradient — the combined
+module is `Opt` for AB, `Std` for CD and EF. Premium first, like every other
+transition in this project.
+
+#### How to sample it
+
+`BevWiring_STATUS.md` §10 analysed the identical structure for CAN versus
+Ethernet and recommended **option 2, substitution groups**:
+
+> *Draw the GROUP total first, then draw the split between members.
+> Anti-correlation within the group is then guaranteed by construction and the
+> group total stays well-behaved. No invented correlation coefficients.*
+
+Applied here:
+
+    1. group total   -- 1 charging/conversion function per car (G1)
+    2. draw the design:  integrated  or  discrete
+           P(integrated | segment, year), rising with 800V and SDV share
+    3. integrated -> one box;   discrete -> two boxes
+
+**One draw per vehicle, held across years** — the same comonotonic scheme as
+architecture and voltage. A car is one design, never a blend.
+
+**This is the fourth appearance of this pattern** — CAN vs Ethernet, the ADAS
+camera ECU declining into the domain controller, the 800V consolidation, and now
+these five groups. It would be the first time it is actually built.
+
+#### Two consequences
+
+1. **The ~12% overcount disappears as a side effect** — not as a patch, but
+   because the accounting becomes right. The group sums to one car's worth by
+   construction.
+2. **P-b shrinks.** It becomes a handful of *split probabilities* rather than a
+   per-component scaling factor for 25–30 components. Smaller to specify, and
+   much harder to get wrong.
+
 ### 2.3 ADAS tier — real but small
 
 3.9% of area, and the tier composition is already built (`19_`
@@ -229,7 +347,8 @@ consumer of the architecture and voltage drivers outside `BevWiring.py`.
 | Step | Work | Verified by |
 |---|---|---|
 | ~~**P-a**~~ | ~~Research the 800V PCB effect~~ | **DONE 2026-08-10, §2.1a.** Absolute area roughly flat (−33% to +10%); the real effect is **consolidation**, expressible through the existing presence mechanism |
-| **P-b** | Build `Presence_per_Architecture` and `Presence_per_Voltage` in `19_` or a new `21_`, for the ~25–30 affected components. **Per §2.1a the voltage table is mostly a presence SHIFT** — OBC + DC/DC → combined module — plus a small residual area term whose band spans zero | sheets load; 2025 composition reproduces `01_` |
+| **P-b** | **REDEFINED 2026-08-10 by §2.2a.** Not a scaling table — a **substitution-group table**: five groups (G1–G5), each with a group total and a split probability. **G4's split is already in `18_`** and G5 is already built. Only G1–G3 need new numbers | group totals sum to one car's worth; 2025 composition reproduces observed board counts |
+| **P-b′** | **Fix the present-day overcount** (§2.2a) — ~12–14% of PCB area is in components that are alternatives to each other, currently added together | EF HV group falls from 3,558 to ~1,370–2,188 mm² |
 | **P-c** | Extract the shared presence module; repoint `SensorNumbersMC` at it | sensor results unchanged, V11–V15 still pass |
 | **P-d** | Port the accumulator into `PCBAreaMC`, no drivers | **P5**, **P1** |
 | **P-e** | Add the year axis and all three drivers | **P2**, **P3**, **P4** |
@@ -256,6 +375,20 @@ invented for it.
 - Infineon — insulation coordination in automotive power modules, IEC 60664-1:2020: <https://community.infineon.com/t5/Knowledge-Base-Articles/Insulation-Coordination-in-Automotive-Power-Module-IEC60664-1-2020/ta-p/865520>
 - TI — demystifying clearance and creepage for high-voltage equipment: <https://www.ti.com/lit/pdf/slup419>
 - Sierra Circuits — PCB line spacing, creepage and clearance; relaxed PCB rules and CTI material groups: <https://www.protoexpress.com/blog/importance-pcb-line-spacing-creepage-clearance/>
+
+**Sources for §2.2a**
+
+- Promwad — zonal architecture in production, 2026: 80–150 discrete ECUs in a 2020 premium car, fewer than 20 under full zonal: <https://promwad.com/news/zonal-architecture-automotive-2026-practical-implementation>
+- Promwad — central compute vs zonal; VW SSP from 2026, ECUs down >50%, wiring down 40%: <https://promwad.com/news/future-of-ecus-central-compute-vs-zonal-automotive-architecture>
+- Dataintelo — integrated inverter-OBC-DC/DC unit market, $2.82 bn (2024) → $12.08 bn (2033), 17.6% CAGR: <https://dataintelo.com/report/integrated-inverter-obc-dcdc-unit-market/amp>
+- Data Insights — integrated OBC DC-DC converter market, $2.5 bn (2025), 20% CAGR: <https://www.datainsightsmarket.com/reports/integrated-obc-dc-dc-converter-803484>
+- Ovar Tech — independent DC-DC vs integrated OBC+DC-DC; integrated described as the mainstream trend in 2026: <https://ovartech.com/independent-dc-dc-vs-integrated-obc-dc-dc/>
+- Siemens Capital — E/E architecture evolution, trends to watch: <https://blogs.sw.siemens.com/ee-systems/2024/09/12/e-e-architecture-evolution-part-2-trends-to-watch/>
+
+*Market-research houses in this list are the **modelled top-down** evidence
+class — see `ADAS_Sensor_Adoption_Report_2025_2070.md` §1.2. Their growth ratios
+are informative; their absolute values are weak. The ECU-count and VW SSP
+figures are the stronger anchors.*
 
 ---
 
