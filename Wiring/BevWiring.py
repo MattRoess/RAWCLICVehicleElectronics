@@ -75,6 +75,8 @@ as a record but nothing opens them.
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -273,23 +275,22 @@ class Inputs:
     scen_active: str = None     # "SAMPLE" or one of scen_names
 
 
-def _monotone_curve(years, anchor_years, anchor_vals):
-    """Smooth, shape-preserving read of the share anchors.
-
-    PCHIP is C1 (continuous first derivative) and cannot overshoot between
-    anchors, so a share stays in [0,1] and the curve has no kink at the 5-year
-    anchor points. np.interp was used first and its slope discontinuities were
-    visible as corners in the output bands.
-    Outside the anchor range the end values are held flat.
-    """
-    from scipy.interpolate import PchipInterpolator
-    x = np.asarray(anchor_years, float); y = np.asarray(anchor_vals, float)
-    o = np.argsort(x); x, y = x[o], y[o]
-    if len(x) < 2:
-        return np.full(len(years), y[0] if len(y) else 0.0)
-    f = PchipInterpolator(x, y, extrapolate=False)
-    out = f(np.clip(years, x[0], x[-1]))
-    return np.clip(np.nan_to_num(out), 0.0, 1.0)
+# --- shared driver curves -------------------------------------------------
+# ONE implementation, in tools/drivers.py, read by every model. Until
+# 2026-08-10 the PCHIP reader and the 800V/architecture/tier readers lived
+# here AND in SensorNumbersMC.py, and step 7 was about to add a third copy in
+# PCBAreaMC. Two models computing the same share from the same file and
+# drifting apart is precisely what V12 exists to catch, so the duplication was
+# removed rather than validated.
+#
+# Nothing about the numbers changed: the extracted readers were diffed against
+# these ones before the swap (max difference 0.0 on 800V and tier shares) and
+# the full model output was reproduced byte for byte afterwards.
+sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
+from drivers import (monotone_curve as _monotone_curve,   # noqa: E402
+                     load_800v_share,
+                     load_architecture_shares,
+                     load_tier_shares)
 
 
 def _read_active_scenario() -> str:
@@ -321,14 +322,7 @@ def _load_tier_axis(years) -> dict:
             f"Generate it with: python3 tools/make_19_adas_sensor_adoption.py")
 
     # ---- A: tier shares, renormalised so columns sum to 1 after interpolation
-    ts = pd.read_excel(ADAS_FILE, sheet_name="Tier_Shares", header=3)
-    ts = ts[ts["Segment"].notna()]
-    tier_shares = {}
-    for seg in BASE_SEGMENTS:
-        d = ts[ts.Segment == seg].sort_values("Year")
-        m = np.vstack([_monotone_curve(years, d.Year.to_numpy(float),
-                                       d[t].to_numpy(float)) for t in TIERS])
-        tier_shares[seg] = m / np.maximum(m.sum(axis=0, keepdims=True), 1e-12)
+    tier_shares = load_tier_shares(years)
 
     # ---- A: sensor counts per tier
     td = pd.read_excel(ADAS_FILE, sheet_name="Tiers", header=3)
@@ -419,20 +413,17 @@ def load_inputs(years) -> Inputs:
     depth_tri = {r["Segment"]: (float(r["Depth_Min"]), float(r["Depth_Mode"]),
                                 float(r["Depth_Max"])) for _, r in dep.iterrows()}
 
-    pen = pd.read_excel(PENETRATION_FILE, sheet_name="Penetration", header=4)
-    pen = pen[pen["Driver"].notna()]
-
-    arch, volt = {}, {}
-    for seg in BASE_SEGMENTS:
-        for st in ARCH_STATES:
-            d = pen[(pen.Driver == "Architecture") & (pen.Segment == seg)
-                    & (pen.State == st)].sort_values("Year")
-            arch[(seg, st)] = _monotone_curve(years, d.Year.to_numpy(float),
-                                              d.Share_Mode.to_numpy(float))
-        d = pen[(pen.Driver == "Voltage") & (pen.Segment == seg)
-                & (pen.State == "800V")].sort_values("Year")
-        volt[seg] = _monotone_curve(years, d.Year.to_numpy(float),
-                                    d.Share_Mode.to_numpy(float))
+    # Architecture and voltage now come from the shared reader. The shared
+    # architecture curves are renormalised at load time, which this model did
+    # at DRAW time instead (run_monte_carlo, "arch_sh /= arch_sh.sum(...)").
+    # inp.arch has exactly one consumer and that renormalisation is its very
+    # next statement, so pre-normalising it is a no-op -- confirmed by the
+    # byte-identical output. The tuple keying is kept: it is what the draw
+    # site expects.
+    arch_m = load_architecture_shares(years)
+    volt = load_800v_share(years)
+    arch = {(seg, st): arch_m[seg][k]
+            for seg in BASE_SEGMENTS for k, st in enumerate(ARCH_STATES)}
 
     # 18_ sheets Sensors_per_Level, Report_Scenarios, Conversion and
     # Autonomy_Derived are NO LONGER READ -- they belonged to the removed
