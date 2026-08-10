@@ -501,6 +501,54 @@ to see.
 
 ---
 
+### 2.2e P-c DONE 2026-08-10 — the shared driver module
+
+Commit `36b21a4`. `tools/drivers.py`, 180 lines, six readers:
+
+| | |
+|---|---|
+| `monotone_curve` | the PCHIP anchor reader that was duplicated |
+| `load_800v_share` | voltage driver |
+| `load_architecture_shares` | **new** — what P-e needs for G4 |
+| `load_tier_shares`, `load_lidar_share` | ADAS drivers A and B |
+| `load_presence_per_tier` | the tier composition |
+
+Pure readers: open a workbook, interpolate anchors, return arrays. No sampling,
+no state. **The models draw; this module only says what they draw from.**
+
+**Scope widened beyond what §6 specified.** The note asked only for
+`SensorNumbersMC`, but `_monotone_curve` existed in `BevWiring.py` too —
+logically identical, separately maintained. Repointing one and not the other
+would have left V12 comparing two implementations that happen to agree, which
+is the condition V12 exists to detect, not a pass. Both were repointed.
+
+**Verified before and after, not assumed:**
+
+| model | evidence |
+|---|---|
+| `SensorNumbersMC` | 2641 lines of stdout **byte-identical** to the pre-change HEAD version. The model is seeded (`np.random.seed(42)`), so this is exact, not "within tolerance". −65 lines |
+| `BevWiring` | 18 comparisons (3 segments × 3 years × Length/Cu) agree to **4.98e-07**, under the 5e-07 half-ulp of the 6-decimal stored baseline. `validate()` **9/9** |
+| V12 | shared-curve agreement `0.000e+00` — now one implementation used twice |
+
+**One subtlety, recorded because it nearly looked like a bug.** The shared
+architecture curves are renormalised at *load* time; `BevWiring` renormalised at
+*draw* time instead (`arch_sh /= arch_sh.sum(...)`). The raw PCHIP columns are
+up to **2.3e-02** off unity, and `comonotonic_state` computes
+`(u > cum).sum()` while documenting its input as "columns summing to 1" — so a
+column summing to 0.9798 appears to yield state index 3, out of range for three
+states. It cannot: the draw-time renormalisation runs first. `inp.arch` has
+exactly one consumer and that renormalisation is its very next statement, so
+pre-normalising is a no-op. Confirmed by the reproduced baseline.
+
+**Lesson for future baselines:** the wiring baseline was stored rounded to 6
+decimals, so an exact-match test against `== 0.0` could never pass. Store
+comparison baselines at full precision.
+
+**Consequence for P-d/P-e:** `PCBAreaMC` imports this module. It does not grow
+a third copy.
+
+---
+
 ## 5. Validation targets
 
 | # | Target | Tolerance | Catches |
@@ -523,7 +571,7 @@ consumer of the architecture and voltage drivers outside `BevWiring.py`.
 | ~~**P-a**~~ | ~~Research the 800V PCB effect~~ | **DONE 2026-08-10, §2.1a.** Absolute area roughly flat (−33% to +10%); the real effect is **consolidation**, expressible through the existing presence mechanism |
 | ~~**P-b**~~ | **DEFERRED 2026-08-10, §2.2c — option B.** The G1–G3 curves are worth under 9% combined, close to the project's ~3% noise floor. G2's split is worth *nothing* to PCB area (e-axle and discrete inverter carry identical boards). **G4 needs no new data and reaches 55.5% of area** — measure it first, then decide whether G1–G3 are worth specifying | deferred |
 | ~~**P-b′**~~ | ~~Fix the present-day overcount~~ | **DONE 2026-08-10, §2.2b.** G1, G2 and G3 all fixed. PCB area fell **14.9 / 19.2 / 17.6%** (AB/CD/EF); EF large boards **−44.3%**. All validation green |
-| **P-c** | Extract the shared presence module; repoint `SensorNumbersMC` at it | sensor results unchanged, V11–V15 still pass |
+| ~~**P-c**~~ | ~~Extract the shared presence module; repoint `SensorNumbersMC` at it~~ | **DONE 2026-08-10, §2.2e — commit `36b21a4`.** Scope widened to `BevWiring` as well. `SensorNumbersMC` stdout **byte-identical** (2641 lines); `BevWiring` reproduces its baseline to 4.98e-07. V11–V15 pass, `validate()` 9/9 |
 | **P-d** | Port the accumulator into `PCBAreaMC`, no drivers | **P5**, **P1** |
 | **P-e** | Add the year axis and the drivers — **G4 and G5 only** per §2.2c. Architecture must be a **discrete per-vehicle state, comonotonic across years**, not a share-weighted average (§2.2d) | **P2**, **P3**, **P4** |
 | **P-f** | Flow the year axis into `PCBElementMC` | element mass at 2025 unchanged |
@@ -534,8 +582,11 @@ scale much in either direction — it *consolidates* — which means P-b is a
 presence table rather than a scaling table, and no new area factor has to be
 invented for it.
 
-**P-b is now the first step with work in it**, and the architecture side of it
-(§2.2) is the part with no data behind it at all.
+~~**P-b is now the first step with work in it**~~ — superseded. P-b is deferred
+(§2.2c) and P-b′ and P-c are done. **`P-d` is the next step**, and it is
+deliberately the boring one: port the accumulator, change no numbers. The year
+axis and the drivers arrive at P-e, after the plumbing is proven not to have
+moved anything.
 
 ---
 
