@@ -158,14 +158,23 @@ rows needs no code change** — same behaviour as the existing share tables.
 
 ## 8. Rolling back
 
-```python
-USE_TIER_AXIS = False        # section 0
+**There is no rollback switch.** `USE_TIER_AXIS` and the whole SAE-level path
+were **deleted on 2026-08-10**.
+
+Why deleted rather than kept: it had not driven the answer since 2026-08-06, but
+it still *looked* live — and that caused a real error. The drivers figure went on
+presenting "Autonomy L3 or better" as a model driver for four days after it had
+stopped being one. Dead machinery that looks live is worse than no machinery.
+
+To compare against the old behaviour, check out the code that ran it:
+
+```bash
+git show 554633e:Wiring/BevWiring.py > /tmp/BevWiring_levelaxis.py
 ```
 
-Restores the old SAE-level path reading `18_` sheet `Sensors_per_Level`, and
-writes to `outputs/data_levelaxis/` so a comparison run cannot overwrite the
-current output. Kept for diffing only — it is not maintained, and it encodes the
-mechanism this change exists to replace.
+`Wiring/MODEL_HISTORY.md` records why each generation was replaced. Note that
+`Data/15_` and `16_` were deleted on 2026-08-05, so generations older than v5
+will not run without restoring those too.
 
 ---
 

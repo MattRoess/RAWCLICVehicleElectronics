@@ -154,7 +154,8 @@ They are coupled: sensor count drives ADAS wiring length.
    document. How it works, what breaks silently, what you edit and where, open
    items.
 2. **`Wiring/IMPLEMENTATION_GUIDE.md`** — the hardware-tier axis: data flow,
-   the three drivers, how to switch scenarios, how to roll back.
+   the drivers, how to switch scenarios. S8 explains why there is no
+   rollback switch.
 3. **`docs/ADAS_Sensor_Adoption_Report_2025_2070.md`** — the sensor
    evidence base. Every number tagged FACT / DERIVED / ASSUMPTION. **§1.2 is
    the most important section in the whole project** — see §7 below.
@@ -228,8 +229,9 @@ Measured, EF total length, 8,000 iterations:
 construction, so it cannot disturb any year with sourced data behind it.
 SAMPLE's band is widest because it carries the scenario spread too.
 
-**Rollback:** `USE_TIER_AXIS = False` in section 0 restores the old level-keyed
-path and writes to `outputs/data_levelaxis/`. Kept for diffing; not maintained.
+**Rollback:** there is no switch — the SAE-level path was **deleted on
+2026-08-10**, along with `USE_TIER_AXIS`. To compare against the old behaviour,
+`git show 554633e:Wiring/BevWiring.py`. See `IMPLEMENTATION_GUIDE.md` S8.
 
 ---
 
@@ -542,7 +544,7 @@ Written 2026-08-07. Nothing here is in progress.
 |---|---|---|
 | 1 | **`LIDAR_H4_FLOOR = 0.80`** in `SensorNumbersMC.py`. After the EF H4 correction the composed EF lidar presence is 0.03 against a real ~0.005 — still ~6x. The tier shares are no longer the cause; this floor is. | moderate, and the last known overshoot |
 | 2 | **Driver C multipliers (1.0 / 1.4 / 2.0)** remain the largest single lever on 2070 and are unsourced. | largest on 2070 |
-| 3 | **`Sensors_per_Level` in `18_` is now dead.** The tier axis replaced it. It is still read when `USE_TIER_AXIS = False`. Decide whether to retire that path. | tidy-up |
+| 3 | ~~**`Sensors_per_Level` in `18_` is now dead.**~~ **RESOLVED 2026-08-10.** The SAE-level path was deleted outright, not left behind a flag. Four sheets in `18_` are now unread: `Sensors_per_Level`, `Report_Scenarios`, `Conversion`, `Autonomy_Derived` — and with them the `Private_lag_y`, `Fleet_to_NewSales_lead_y`, `Europe_shift_y` and `Offset_*_y` levers. Results moved by 0.32% worst case, which is pure Monte Carlo noise from the removed RNG draws. | done |
 | 4 | **`01_` relabel not propagated.** `SensorElementsMC.py` and the PCB models read `01_`; 10 cells changed and those models have not been re-run. | do before step 7 |
 | 5 | **Option B** — front-corner and cabin/child-presence cameras as new components. Documented in `SENSOR_MODEL_DESIGN.md` S10.5, not built. | structural |
 | 6 | **No sensor-strategy dimension** (vision-only vs lidar-heavy). `BevWiring_STATUS.md` S10 has the analysis; substitution groups is the recommendation. | structural |

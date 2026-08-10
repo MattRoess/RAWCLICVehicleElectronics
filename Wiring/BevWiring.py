@@ -61,14 +61,16 @@ scenario tables onto a size segment.
 INPUTS
 --------------------------------------------------------------------------------
   Data/17_BEV_wiring_baseline_2025.xlsx      2025 baseline, gauges, SDV factors
-  Data/18_BEV_technology_penetration.xlsx    all three drivers + sensors
-16_ and 15_ are NOT read. Both superseded.
+  Data/18_BEV_technology_penetration.xlsx    architecture + voltage shares,
+                                             and Metres_per_Sensor
+  Data/19_ADAS_sensor_adoption.xlsx          ADAS hardware tiers, lidar, presence
+  Data/20_scenarios.xlsx                     project-wide scenario selection
+15_ and 16_ were deleted 2026-08-05 (superseded).
 
-NOTE ON READING 18_: the model recomputes the autonomy conversion from
-Report_Scenarios + Conversion rather than reading the Autonomy_Derived sheet.
-That sheet is formulas, and openpyxl cannot see formula results until Excel has
-opened and saved the file. The Python here mirrors those formulas exactly; if
-you change one, change the other.
+NOT READ from 18_, since the SAE-level axis was removed on 2026-08-10:
+Sensors_per_Level, Report_Scenarios, Conversion, Autonomy_Derived. Those four
+sheets belonged to the certification-keyed path. They are left in the workbook
+as a record but nothing opens them.
 """
 
 from __future__ import annotations
@@ -95,16 +97,21 @@ ADAS_FILE = DATA_DIR / "19_ADAS_sensor_adoption.xlsx"
 # One cell: sheet Control, Active_Scenario.
 SCENARIO_FILE = DATA_DIR / "20_scenarios.xlsx"
 
-# Sensor axis | UNIT: none.
-# True  = ADAS content is driven by the HARDWARE TIER axis in 19_ (drivers A/B/C).
-# False = the old path: SAE certification level x 18_ Sensors_per_Level.
-# WHY the change: wiring follows installed hardware, not the certificate. Volvo's
-# EX90 carries 31 sensors and is certified L2; BMW's i7 carried 25 and was
-# certified L3. Keying sensor count on the certificate gets the near-term trend
-# backwards, because certified L3 is being WITHDRAWN in Europe while sensor
-# content keeps rising. Full argument: docs/ADAS_Sensor_Adoption_Report_2025_2070.md
-# Keep False available for diffing old against new; it is not maintained.
-USE_TIER_AXIS = True
+# ADAS content is driven by the HARDWARE TIER axis in 19_ (drivers A/B/C).
+#
+# The old SAE-certification-level path was REMOVED on 2026-08-10 along with its
+# USE_TIER_AXIS switch. Wiring follows installed hardware, not the certificate:
+# Volvo's EX90 carries 31 sensors at L2, BMW's i7 carried 25 at L3, and certified
+# L3 is being WITHDRAWN in Europe while sensor content keeps rising -- so keying
+# sensor count on the certificate got the near-term trend backwards.
+# Full argument: docs/ADAS_Sensor_Adoption_Report_2025_2070.md
+#
+# WHY IT WAS DELETED RATHER THAN KEPT AS A FALLBACK: it had not driven the answer
+# since 2026-08-06, but it still LOOKED live, and that caused a real error -- the
+# drivers figure went on presenting "Autonomy L3 or better" as a model driver for
+# four days. Dead machinery that looks live is worse than no machinery.
+# The working old path is preserved in git at 554633e and earlier; see
+# MODEL_HISTORY.md for why each generation was replaced.
 
 # Driver C scenario selection | UNIT: none.
 # None  = obey the Active_Scenario cell in 20_ sheet Control (normal use).
@@ -224,7 +231,6 @@ HIST_PLOT_YEARS = [2025, 2050, 2070]   # years given their own per-group
                                        # Must be a subset of SNAPSHOT_YEARS.
 COL_LO, COL_HI = (f"P{p:g}".replace(".", "_") for p in STAT_PCTS)
 
-LEVELS = ["L0", "L1", "L2", "L3", "L4", "L5"]
 ARCH_STATES = ["Conventional", "Transitional", "SDV_Zonal"]
 
 # ADAS hardware tiers | UNIT: none. H3/H4 are anchored on measured cars
@@ -255,10 +261,8 @@ class Inputs:
     depth_tri: dict         # segment -> (min, mode, max) SDV depth
     arch: dict              # (segment, state) -> callable(year)->share
     volt: dict              # segment -> callable(year)->share of 800V
-    autonomy: dict          # (segment, band) -> (n_levels, n_years) shares
-    sensors: pd.DataFrame   # Level, Sensor_Type, Count_Min/Mode/Max  (old axis)
     metres: pd.DataFrame    # Sensor_Type, Segment, m_Min/Mode/Max
-    # --- tier axis, from 19_. None when USE_TIER_AXIS is False.
+    # --- ADAS hardware-tier axis, from 19_ (drivers A/B/C)
     tier_shares: dict = None    # segment -> (n_tiers, n_years) shares, cols sum to 1
     tier_counts: dict = None    # (tier, sensor_type) -> (min, mode, max) per vehicle
     lidar: np.ndarray = None    # (3, n_years) Min/Mode/Max equipped share, Europe
@@ -430,13 +434,13 @@ def load_inputs(years) -> Inputs:
         volt[seg] = _monotone_curve(years, d.Year.to_numpy(float),
                                     d.Share_Mode.to_numpy(float))
 
-    autonomy = _derive_autonomy(years)
-    sensors = pd.read_excel(PENETRATION_FILE, sheet_name="Sensors_per_Level", header=4)
-    sensors = sensors[sensors["Level"].notna()]
+    # 18_ sheets Sensors_per_Level, Report_Scenarios, Conversion and
+    # Autonomy_Derived are NO LONGER READ -- they belonged to the removed
+    # SAE-level axis. Metres_per_Sensor is still read, unchanged.
     metres = pd.read_excel(PENETRATION_FILE, sheet_name="Metres_per_Sensor", header=4)
     metres = metres[metres["Sensor_Type"].notna()]
 
-    tier = _load_tier_axis(years) if USE_TIER_AXIS else {}
+    tier = _load_tier_axis(years)
 
     return Inputs(
         codes=b["Code"].tolist(), groups=b["Functional Group"].tolist(),
@@ -444,64 +448,9 @@ def load_inputs(years) -> Inputs:
         gauge_max=b["Gauge_Max_mm2"].to_numpy(float),
         sdv_factor=b["SDV_Base_Length_Factor"].to_numpy(float),
         length={s: b[f"{s}_Length_m"].to_numpy(float) for s in BASE_SEGMENTS},
-        depth_tri=depth_tri, arch=arch, volt=volt, autonomy=autonomy,
-        sensors=sensors, metres=metres, **tier,
+        depth_tri=depth_tri, arch=arch, volt=volt, metres=metres, **tier,
     )
 
-
-def _derive_autonomy(years) -> dict:
-    """Mirror of the Autonomy_Derived sheet, in Python.
-
-    Reads the report's global in-use-fleet scenarios and converts them to
-    European private new-vehicle shares by size segment, by shifting the time
-    axis. Four levers, all on the Conversion sheet:
-
-        fleet -> new sales   new sales LEAD the parc by ~mean fleet age
-        private lag          private follows commercial/robotaxi adoption
-        Europe shift         Europe vs global
-        segment offset       premium leads, cost-sensitive lags
-
-    net_shift = -(fleet lead) + (private lag) + (Europe) + (segment offset)
-    and the report table is read at (year - net_shift), clamped to its range.
-
-    Why recomputed rather than read: Autonomy_Derived is formulas, and formula
-    results are invisible to openpyxl until Excel has saved the file.
-    """
-    raw = pd.read_excel(PENETRATION_FILE, sheet_name="Report_Scenarios", header=None)
-    blocks, cur = {}, None
-    for i in range(len(raw)):
-        v = raw.iloc[i, 0]
-        if isinstance(v, str) and v.split("  ")[0] in ("Conservative", "Central", "Accelerated"):
-            cur = v.split("  ")[0]; blocks[cur] = []
-        elif cur and isinstance(v, (int, float)) and not pd.isna(v) and 1990 < v < 2100:
-            blocks[cur].append([float(v)] + [float(raw.iloc[i, 1 + k]) for k in range(6)])
-    scen = {k: np.array(v) for k, v in blocks.items()}
-
-    cv = pd.read_excel(PENETRATION_FILE, sheet_name="Conversion", header=3)
-    cv = cv[cv["Parameter"].notna()].set_index("Parameter")["Value"]
-    lead = float(cv["Fleet_to_NewSales_lead_y"])
-    priv = float(cv["Private_lag_y"])
-    eur = float(cv["Europe_shift_y"])
-    off = {s: float(cv[f"Offset_{s}_y"]) for s in BASE_SEGMENTS}
-    band_scen = {"Share_Min": "Conservative", "Share_Mode": "Central",
-                 "Share_Max": "Accelerated"}
-
-    out = {}
-    for seg in BASE_SEGMENTS:
-        net = -lead + priv + eur + off[seg]
-        t = np.clip(years - net, 2020, 2050)
-        for band, sc in band_scen.items():
-            tab = scen[sc]
-            m = np.vstack([np.interp(t, tab[:, 0], tab[:, 1 + k]) for k in range(6)])
-            m = np.clip(m, 0.0, None)
-            m = m / np.maximum(m.sum(axis=0, keepdims=True), 1e-12)   # renormalise
-            out[(seg, band)] = m
-    return out
-
-
-# --------------------------------------------------------------------------
-# 2. STATE SAMPLING
-# --------------------------------------------------------------------------
 
 def _shift_shares(shares, years, delta):
     """Re-read the share curves with each iteration's own time offset.
@@ -579,9 +528,7 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
     cv_ind = float(np.sqrt(max(CV_CATEGORY ** 2 - CV_VEHICLE ** 2, 0.0)))
     i_base = int(np.searchsorted(years, BASE_YEAR))
 
-    sens = inp.sensors.set_index(["Level", "Sensor_Type"])
     met = inp.metres.set_index(["Sensor_Type", "Segment"])
-    sensor_types = sorted(inp.sensors.Sensor_Type.unique())
 
     per_category, totals, diag = {}, {}, {}
 
@@ -590,28 +537,12 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
         arch_sh = np.vstack([inp.arch[(seg, s)] for s in ARCH_STATES])
         arch_sh = np.clip(arch_sh, 0, None)
         arch_sh /= np.maximum(arch_sh.sum(axis=0, keepdims=True), 1e-12)
-        aut_sh = inp.autonomy[(seg, "Share_Mode")]
-        aut_lo = inp.autonomy[(seg, "Share_Min")]
-        aut_hi = inp.autonomy[(seg, "Share_Max")]
-        # band membership drawn per iteration, so the scenario spread from the
-        # source report becomes part of the MC rather than a separate run
-        w = rng.random(n_iter)[:, None, None]
-        aut_mix = np.where(w < 1 / 3, aut_lo[None], np.where(w < 2 / 3, aut_sh[None], aut_hi[None]))
 
         # ---- discrete states
         u_arch = rng.random(n_iter)
-        u_aut = rng.random(n_iter)
         d_arch = rng.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=n_iter)
-        d_aut = rng.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=n_iter)
         arch_i = _shift_shares(arch_sh, years, d_arch)                # (3,n_iter,n_years)
         st_arch = (u_arch[None, :, None] > np.cumsum(arch_i, axis=0)).sum(axis=0)
-        aut_i = np.empty((6, n_iter, n_years))
-        for k in range(6):
-            for i, d in enumerate(d_aut):
-                aut_i[k, i] = np.interp(years - d, years, aut_mix[i, k])
-        aut_i = np.clip(aut_i, 0, None)
-        aut_i /= np.maximum(aut_i.sum(axis=0, keepdims=True), 1e-12)
-        st_aut = (u_aut[None, :, None] > np.cumsum(aut_i, axis=0)).sum(axis=0)
 
         # ---- SDV depth and the three architecture levels, per category
         depth = rng.triangular(*inp.depth_tri[seg], size=n_iter)
@@ -643,18 +574,7 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
                   * fac * var)
 
         # ---- ADAS/sensor categories: driven by SENSOR COUNT, not architecture
-        if inp.tier_shares is not None:
-            cnt = _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch)
-        else:
-            cnt = np.zeros((n_iter, n_years))
-            for si, stype in enumerate(sensor_types):
-                per_level = np.array([
-                    rng.triangular(*_tri(sens, lv, stype), size=n_iter) for lv in LEVELS
-                ])                                                    # (6, n_iter)
-                drawn = np.take_along_axis(per_level.T[:, :, None].repeat(n_years, axis=2),
-                                           st_aut[:, None, :], axis=1)[:, 0, :]
-                m = rng.triangular(*_tri_m(met, stype, seg), size=n_iter)[:, None]
-                cnt += drawn * m                                      # metres
+        cnt = _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch)
         # scale so the ADAS block reproduces its 2025 baseline total
         adas_base = inp.length[seg][is_adas].sum() * SEGMENT_LENGTH_CALIBRATION[seg]
         # ENSEMBLE mean, not per-iteration: dividing each iteration by its own
@@ -689,13 +609,8 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
         totals[(METRIC_CU, seg)] = cu_kg.sum(axis=1)
         diag[("arch", seg)] = arch_sh
         diag[("volt", seg)] = inp.volt[seg]
-        # Retained ONLY for the USE_TIER_AXIS=False fallback path. Since
-        # 2026-08-06 the SAE level does not drive ADAS content -- the hardware
-        # tier does. Kept out of the drivers figure for that reason.
-        diag[("autonomy", seg)] = aut_sh
-        if inp.tier_shares is not None:
-            diag[("tier", seg)] = inp.tier_shares[seg]
-            diag[("lidar", seg)] = inp.lidar[1]        # Mode band
+        diag[("tier", seg)] = inp.tier_shares[seg]
+        diag[("lidar", seg)] = inp.lidar[1]            # Driver B, Mode band
 
     for seg, j_seg in J_SUFFIX.items():
         adder = rng.triangular(*HEIGHT_ADDER_TRI, size=(n_iter, 1))
@@ -831,17 +746,6 @@ def _tri_tier(counts, segment, tier, stype):
         raise KeyError(
             f"19_ sheet Tiers has no row for segment {segment!r}, tier {tier!r}. "
             f"Regenerate with: python3 tools/make_19_adas_sensor_adoption.py")
-    return (lo, min(max(mo, lo), hi), max(hi, lo + 1e-9))
-
-
-def _tri(sens, level, stype):
-    """(min, mode, max) sensor count. Degenerate triples are widened by a hair
-    so rng.triangular does not divide by a zero span."""
-    try:
-        r = sens.loc[(level, stype)]
-        lo, mo, hi = float(r.Count_Min), float(r.Count_Mode), float(r.Count_Max)
-    except KeyError:
-        return (0.0, 0.0, 1e-9)
     return (lo, min(max(mo, lo), hi), max(hi, lo + 1e-9))
 
 
@@ -1128,18 +1032,16 @@ def plot_drivers(result, out_path):
     """The drivers that actually move the answer.
 
     CORRECTED 2026-08-10. This figure used to show "Autonomy L3 or better" as
-    one of "the three independent drivers". That has been false since
+    one of "the three independent drivers". That had been false since
     2026-08-06: ADAS content is driven by the installed HARDWARE TIER, not by
-    the SAE certification level, and the autonomy shares survive only in the
-    USE_TIER_AXIS=False fallback path. Anyone reading the old figure would
-    reasonably have concluded the certificate still drives sensor content --
-    which is the exact misconception the tier axis exists to remove.
+    the SAE certification level. A reader would reasonably have concluded the
+    certificate still drives sensor content -- the exact misconception the tier
+    axis exists to remove. The SAE-level path was deleted outright on the same
+    day; keeping it as a fallback is what let the figure go stale.
     """
     plt = _plt()
     colors = {"AB": "#1f77b4", "CD": "#ff7f0e", "EF": "#2ca02c"}
-    has_tier = ("tier", BASE_SEGMENTS[0]) in result.diagnostics
-    n_panels = 4 if has_tier else 3
-    fig, axes = plt.subplots(1, n_panels, figsize=(4.4 * n_panels, 4.6))
+    fig, axes = plt.subplots(1, 4, figsize=(17.6, 4.6))
     axes = np.atleast_1d(axes)
 
     for seg in BASE_SEGMENTS:
@@ -1147,35 +1049,25 @@ def plot_drivers(result, out_path):
                      color=colors[seg], lw=1.8, label=seg)
         axes[1].plot(result.years, 100 * result.diagnostics[("volt", seg)],
                      color=colors[seg], lw=1.8, label=seg)
-        if has_tier:
-            # H3 or better: the "L2++" hardware step, which is where the sensor
-            # count actually jumps. TIERS = H0..H4, so index 3 upward.
-            tier = result.diagnostics[("tier", seg)]
-            axes[2].plot(result.years, 100 * tier[3:].sum(axis=0),
-                         color=colors[seg], lw=1.8, label=seg)
-        else:
-            aut = result.diagnostics[("autonomy", seg)]
-            axes[2].plot(result.years, 100 * aut[3:].sum(axis=0),
-                         color=colors[seg], lw=1.8, label=seg)
+        # H3 or better: the "L2++" hardware step, which is where the sensor
+        # count actually jumps. TIERS = H0..H4, so index 3 upward.
+        tier = result.diagnostics[("tier", seg)]
+        axes[2].plot(result.years, 100 * tier[3:].sum(axis=0),
+                     color=colors[seg], lw=1.8, label=seg)
 
-    if has_tier:
-        # Driver B is one European curve, not per segment.
-        axes[3].plot(result.years, 100 * result.diagnostics[("lidar", BASE_SEGMENTS[0])],
-                     color="#7f7f7f", lw=2.0, label="Europe, mode")
-        titles = ("SDV / zonal architecture", "800V",
-                  "Hardware tier H3 or better", "Lidar equipped (Driver B)")
-    else:
-        titles = ("SDV / zonal architecture", "800V", "Autonomy L3 or better")
+    # Driver B is one European curve, not per segment.
+    axes[3].plot(result.years, 100 * result.diagnostics[("lidar", BASE_SEGMENTS[0])],
+                 color="#7f7f7f", lw=2.0, label="Europe, mode")
+    titles = ("SDV / zonal architecture", "800V",
+              "Hardware tier H3 or better", "Lidar equipped (Driver B)")
 
     for ax, t in zip(axes, titles):
         ax.set_title(t); ax.set_xlabel("Year")
         ax.set_ylabel("% of new vehicles sold")
         ax.grid(alpha=0.3); ax.legend(fontsize=8)
 
-    sub = ("The drivers (mode shares). ADAS content follows the HARDWARE TIER, "
-           "not the SAE certificate." if has_tier
-           else "The three independent drivers (mode shares) -- LEGACY SAE-level axis")
-    fig.suptitle(sub, fontsize=12)
+    fig.suptitle("The drivers (mode shares). ADAS content follows the HARDWARE "
+                 "TIER, not the SAE certificate.", fontsize=12)
     plt.tight_layout(rect=[0, 0, 1, 0.93]); plt.savefig(out_path, dpi=140); plt.close(fig)
 
 
@@ -1344,8 +1236,6 @@ def _suffix() -> str:
     """Output filename suffix. Empty for SAMPLE, so existing filenames are
     unchanged; '_S2' etc. when pinned, so scenario runs cannot silently
     overwrite one another."""
-    if not USE_TIER_AXIS:
-        return "_levelaxis"
     act = SCENARIO_OVERRIDE
     if act is None:
         try:
@@ -1365,13 +1255,11 @@ if __name__ == "__main__":
     print("BEV wiring -- state-based, sensor-coupled")
     print(f"  baseline     : {BASELINE_FILE.name}")
     print(f"  penetration  : {PENETRATION_FILE.name}")
-    if USE_TIER_AXIS:
-        print(f"  ADAS adoption: {ADAS_FILE.name}  "
-              f"(hardware-tier axis, drivers A/B/C)")
-        print(f"  scenario     : {SFX[1:] if SFX else 'SAMPLE'}"
-              f"{'  (band spans S1/S2/S3)' if not SFX else '  (pinned)'}")
-    else:
-        print(f"  ADAS adoption: OLD SAE-level axis (18_ Sensors_per_Level)")
+    print(f"  ADAS adoption: {ADAS_FILE.name}  "
+          f"(hardware-tier axis, drivers A/B/C)")
+    print(f"  scenario     : {SCENARIO_FILE.name} -> "
+          f"{SFX[1:] if SFX else 'SAMPLE'}"
+          f"{'  (band spans S1/S2/S3)' if not SFX else '  (pinned)'}")
     print(f"  {START_YEAR}-{END_YEAR}, {N_ITER} iterations, seed {RANDOM_SEED}\n")
 
     # Statistics come from the CHUNKED path, so N_ITER can be raised to

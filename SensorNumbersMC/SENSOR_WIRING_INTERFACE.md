@@ -17,7 +17,8 @@ Written 2026-08-04. Revised 2026-08-05.
 >    *withdrawn* in Europe while sensor content rises. Rationale:
 >    `../Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md`.
 > 2. **BOTH models are now on the tier axis.** `BevWiring.py` moved on
->    2026-08-05, `SensorNumbersMC.py` on 2026-08-06 (`USE_TIER_AXIS = True`).
+>    2026-08-05, `SensorNumbersMC.py` on 2026-08-06. The old SAE-level path was
+>    deleted outright on 2026-08-10.
 >    An earlier version of this note said the sensor model had **not** been
 >    rewired — that was stale, and is corrected as of 2026-08-07.
 > 3. **They are now checked against each other.** `V15` in
