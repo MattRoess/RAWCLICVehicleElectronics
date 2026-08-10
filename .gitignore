@@ -38,3 +38,5 @@ Thumbs.db
 ### POSITRON / JUPYTER
 .ipynb_checkpoints/
 .positron/
+# Monte Carlo raw draws: regenerable, large, and synced by iCloud.
+*.npy

@@ -1,0 +1,176 @@
+# Handover — 2026-08-10, end of session
+
+Steps P-c (finished, committed) and P-d (code complete and verified, **not
+committed and not signed off**). Read §4 first if you are picking this up cold —
+it has the P1/P5 numbers and the three open decisions.
+
+---
+
+## 1. Where things stand
+
+| step | state |
+|---|---|
+| **P-c** extract shared driver curves | **DONE**, commits `36b21a4` + `9dce5e9` |
+| **P-d** accumulator into `PCBAreaMC` | code complete, full run green, **P1/P5 125 of 126 — UNCOMMITTED, not signed off** |
+| P-e year axis + G4/G5 | not started |
+| P-f year axis into `PCBElementMC` | not started |
+
+---
+
+## 2. P-c — done and committed
+
+`tools/drivers.py` (180 lines): `monotone_curve`, `load_800v_share`,
+`load_architecture_shares`, `load_tier_shares`, `load_lidar_share`,
+`load_presence_per_tier`. Pure readers, no sampling, no state.
+
+Both `SensorNumbersMC` and `BevWiring` were repointed at it — the scope was
+widened from the design note's "`SensorNumbersMC` only" because `BevWiring`
+carried the same duplicated reader, and leaving it would have meant V12 was
+comparing two implementations that happen to agree.
+
+Verified: `SensorNumbersMC` stdout **byte-identical** (2641 lines; the model is
+seeded so this is exact). `BevWiring` reproduced its baseline to 4.98e-07,
+inside the 5e-07 half-ulp of the 6-decimal stored baseline; `validate()` 9/9.
+
+Written up in `docs/PCB_MODEL_DESIGN.md` §2.2e, including the architecture
+renormalisation subtlety that nearly read as an out-of-range state index.
+
+---
+
+## 3. P-d — what was built
+
+### 3.1 `tools/accumulator.py` (NEW, uncommitted)
+
+`Accumulator` — the union of the two existing versions (BevWiring's
+`mode()`/`edges()` + SensorNumbersMC's `std`/min/max/1-D handling).
+`SensorNumbersMC` was repointed at it and is **still byte-identical**.
+
+`CoMoments` — **new, and the piece that made the port possible.** A histogram
+holds marginals only, so it cannot answer "how does `total_small_area` co-vary
+with `total_area`?" — which is exactly what `PCBAreaMC`'s sensitivity block
+asked via `np.corrcoef` on raw draws. Pearson's r from five running sums is
+**exact**: verified to 3e-15 against the full draws.
+
+What is exact vs binned after the port:
+
+| exact | mean, std, variance, min, max, **all correlations** |
+|---|---|
+| **binned** | percentiles and mode, to 1/1000 of the range (worst percentile error measured: **0.052%**, against P5's ±3%) |
+
+### 3.2 `PCBAreaMC/PCBAreaMC.py` (heavily modified, uncommitted)
+
+The sampling core `run_batch_simulation` is **untouched**. Added
+`run_accumulated(...)` around it: pilot run for the range, then chunks of
+`CHUNK_DRAWS = 20000` folded into accumulators and discarded.
+
+Why it was needed:
+
+| | held in RAM |
+|---|---|
+| before, 1 year | 235 MB (34 MB top level + 202 MB across 6 categories) |
+| at P-e, 51 years | **12.0 GB** |
+| accumulator | **1.2 MB**, any draw count |
+
+Every raw-draw consumer was rerouted: stats, sensitivity (co-moments), the
+`hist()`/`boxplot()` calls (new `hist_from_acc` / `box_from_acc` helpers), the
+histogram CSV exports, and the per-category block.
+
+### 3.3 Raw draws: CSV → `.npy`
+
+Decided with the user this session. The old layout wrote **522 MB** of CSV, and
+the segment draws were written **twice** under two names
+(`csv_monte_carlo/..._detailed_results.csv` and
+`raw_data/raw_distribution_{SEG}_segment.csv` were byte-for-byte identical).
+
+Now: float32 `.npy`, streamed to disk during the run via memmap so they are
+never held whole in RAM. ~118 MB total. Segment files carry a `.json` sidecar
+naming the columns; category files use `METRIC_KEYS` order.
+
+```python
+np.load("raw_data/pcb_monte_carlo_EF_draws.npy", mmap_mode="r")   # (200000, 7)
+```
+
+`*.npy` was added to `.gitignore` — regenerable, large, and iCloud syncs it.
+
+**The small CSVs are unchanged and stay**: summary stats, sensitivity, segment
+comparison, histogram bins, category summaries. Only per-draw dumps went binary.
+
+---
+
+## 4. WHAT IS NOT DONE — start here tomorrow
+
+The full 200,000-draw run **did complete, exit 0**, and P1/P5 were checked
+against the pre-port baseline in `scratchpad/pcb_baseline/`.
+
+### 4.1 P1 / P5 result — 125 of 126 pass
+
+| | |
+|---|---|
+| statistics compared | 126 (3 segments × 7 metrics × 6 statistics) |
+| outside ±3% | **1** |
+| worst | `AB total_large_area mode` **+3.211%** |
+| total_area mean, all segments | ≤ **0.012%** |
+| total_area p2.5 / p97.5 | ≤ **0.049%** |
+
+**The single failure is the mode, and its definition was changed on purpose.**
+Pre-port `approx_mode` binned the draws into its own private 200 bins; the port
+reads `coarse_mode` off the same 50 bins that get exported, so the published
+Mode is reproducible from the published histogram. A mode is bin-width
+dependent, so a shift of this size on a change of bin count is expected, not a
+port defect. Every mean, standard deviation and percentile is inside 0.05%.
+
+**Judgement, for the user to confirm:** this reads as P-d passing, with one
+known and intended definitional change. It has NOT been signed off.
+
+### 4.2 Open items
+
+1. **Nothing from P-d is committed.** Working tree holds
+   `tools/accumulator.py` (new), `PCBAreaMC/PCBAreaMC.py`,
+   `SensorNumbersMC/SensorNumbersMC.py`, `.gitignore`, and this file.
+
+2. **The pilot range warning fired on the real run.** 13 / 15 / 12 draws out of
+   200,000 (**0.007%**) fell outside the pilot range for AB / CD / EF. Only the
+   extreme tails are affected and the reported p2.5–p97.5 match the baseline to
+   0.05%, so this is cosmetic — but the warning is deliberately conservative and
+   will print every run until `PILOT_DRAWS` (2000) or `PILOT_PAD` (0.35) is
+   raised. **Decide whether to raise one, or to widen the warning threshold so
+   it only fires when it matters.**
+
+3. ~~522 MB of superseded CSVs still on disk~~ **DONE.** 24 orphaned files
+   deleted on the user's instruction: `csv_monte_carlo/*_detailed_results.csv`
+   (3) and `raw_data/raw_distribution_*.csv` (21). `PCBAreaMC/` went
+   **638 MB → 115 MB**. All 24 were untracked (`.gitignore` excludes `*.csv`),
+   and the 21 `.npy` replacements were checked first — all `(200000, 7)`
+   float32, finite, with sidecars — before anything was removed.
+   `raw_data/` now holds 21 `.npy` + 3 `.json`. The summary-stats CSVs are
+   untouched.
+
+4. **Box-plot whiskers are now p2.5–p97.5**, not matplotlib's 1.5×IQR rule over
+   raw draws. Axis labels say so. Figures differ slightly for this reason alone.
+
+---
+
+## 5. Deliberate deviations from the design note
+
+- P-c covered `BevWiring` as well as `SensorNumbersMC` (user approved).
+- P-d's note entry says only "port the accumulator". It did not anticipate the
+  three raw-draw consumers — correlations, plots, and the 522 MB of CSV. The
+  correlations were the one genuine blocker and are solved exactly, not
+  approximately.
+- The reported **mode** changed meaning: it now comes from the same 50-bin
+  histogram that gets exported (`coarse_mode`), so it is reproducible from a
+  published file. The old `approx_mode` used its own private 200 bins and could
+  not be reproduced from any output.
+
+---
+
+## 6. Standing rules (unchanged, and they matter)
+
+- **Only the user says when work moves forward.** No modification without an
+  explicit OK. Agreement with an idea is not permission to edit.
+- Investigate before correcting; document before implementing; keep reports in
+  line with the code and the results.
+- No dead parameters.
+- Large uncertainties are the point — what looks like an error may be inside the
+  band. >10× is the threshold for calling something an error.
+- `ElectricMotorMC` is **auxiliary** motors, not traction/powertrain.
