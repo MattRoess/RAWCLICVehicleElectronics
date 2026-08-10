@@ -437,6 +437,70 @@ only the year dimension flowing through.
 
 ---
 
+### 2.2c P-b RESCOPED 2026-08-10 — measure G4 first, defer G1–G3
+
+**Per-unit board area for each group member (mode sizes) — the check that
+changed the plan:**
+
+| Group | discrete option | integrated option | saving from integrating |
+|---|---|---|---|
+| **G1** charging | OBC 1,094 + DC/DC 1,094 = **2,188** | Combined **1,370** | **−818 mm²** (−37%) |
+| **G2** drive | inverter **926** | e-axle **926** | **zero** |
+| **G3** cockpit | head unit 1,028 + cluster 287 = **1,315** | Combined SoC **1,028** | −287 mm² (−22%) |
+
+**For G2 the integration split does nothing to PCB area**, and that is physically
+right: integrating motor, inverter and gearbox saves *housing, cooling and
+cabling*, not circuit board — the inverter electronics are the same either way.
+**G2 therefore needs an AWD trend, not an integration trend.**
+
+**What each curve is worth**, full 0→100% swing against EF's 22,365 mm²:
+
+| | lever | max swing |
+|---|---|---|
+| **G2** | AWD share | 926 mm² (**4.1%**) |
+| **G1** | integration share | 818 mm² (3.5%) |
+| **G3** | integration share | 287 mm² (1.3%) |
+
+**Under 9% combined**, and that is the full range, not the realistic 2025→2070
+movement. Meanwhile **G4 reaches 55.5% of PCB area and its split probability is
+already in `18_`.**
+
+**DECISION (user, 2026-08-10): option B.** Skip the G1–G3 curves for now. Go
+straight to P-c/P-d/P-e with **G4 and G5 only**, since neither needs new data,
+measure what architecture consolidation actually does, and only then decide
+whether curves worth a few percent are worth specifying.
+
+Rationale: P-b as originally written would front-load the least valuable data
+work while the largest and best-grounded driver waited on code.
+
+### 2.2d UNCERTAINTY — carried, not collapsed
+
+**User's standing requirement, restated 2026-08-10: this is a Monte Carlo model
+and the uncertainties are large. Point estimates are not the deliverable.**
+
+Three independent sources of spread must survive into the PCB result, and all
+three already exist — none has to be invented:
+
+| Source | Where it lives | Spread |
+|---|---|---|
+| Architecture share | `18_` `Penetration`, `Share_Min`/`Mode`/`Max` | **±0.12** on the share |
+| Boards per component | `01_` `PCB_total_min` / `_max` and the size split | typically 1–3 boards |
+| Board size per class | `03_` min / mode / max | small 9–80 mm², large 300–1,125 mm² |
+
+Read against `ADAS_Sensor_Adoption_Report_2025_2070.md` §1.2: the project's
+**self-consistency floor is ~3%**, cross-house forecast spread **~1.6×**, and
+structural disagreement **3–4×**. **The whole G1+G2+G3 block, at under 9%, sits
+close to that floor** — which is a second, independent reason to measure G4
+before spending effort on them.
+
+**Implication for P-e:** the architecture driver must be drawn as a *discrete
+state per vehicle, comonotonic across years*, exactly like the wiring model —
+not applied as a share-weighted average. Share-weighting would collapse a
+bimodal mixture into its mean and destroy precisely the band the user is asking
+to see.
+
+---
+
 ## 5. Validation targets
 
 | # | Target | Tolerance | Catches |
@@ -457,11 +521,11 @@ consumer of the architecture and voltage drivers outside `BevWiring.py`.
 | Step | Work | Verified by |
 |---|---|---|
 | ~~**P-a**~~ | ~~Research the 800V PCB effect~~ | **DONE 2026-08-10, §2.1a.** Absolute area roughly flat (−33% to +10%); the real effect is **consolidation**, expressible through the existing presence mechanism |
-| **P-b** | **REDEFINED 2026-08-10 by §2.2a.** Not a scaling table — a **substitution-group table**: five groups (G1–G5), each with a group total and a split probability. **G4's split is already in `18_`** and G5 is already built. Only G1–G3 need new numbers | group totals sum to one car's worth; 2025 composition reproduces observed board counts |
+| ~~**P-b**~~ | **DEFERRED 2026-08-10, §2.2c — option B.** The G1–G3 curves are worth under 9% combined, close to the project's ~3% noise floor. G2's split is worth *nothing* to PCB area (e-axle and discrete inverter carry identical boards). **G4 needs no new data and reaches 55.5% of area** — measure it first, then decide whether G1–G3 are worth specifying | deferred |
 | ~~**P-b′**~~ | ~~Fix the present-day overcount~~ | **DONE 2026-08-10, §2.2b.** G1, G2 and G3 all fixed. PCB area fell **14.9 / 19.2 / 17.6%** (AB/CD/EF); EF large boards **−44.3%**. All validation green |
 | **P-c** | Extract the shared presence module; repoint `SensorNumbersMC` at it | sensor results unchanged, V11–V15 still pass |
 | **P-d** | Port the accumulator into `PCBAreaMC`, no drivers | **P5**, **P1** |
-| **P-e** | Add the year axis and all three drivers | **P2**, **P3**, **P4** |
+| **P-e** | Add the year axis and the drivers — **G4 and G5 only** per §2.2c. Architecture must be a **discrete per-vehicle state, comonotonic across years**, not a share-weighted average (§2.2d) | **P2**, **P3**, **P4** |
 | **P-f** | Flow the year axis into `PCBElementMC` | element mass at 2025 unchanged |
 
 ~~**P-a comes first and produces no code.**~~ **Done.** It was worth doing first:
