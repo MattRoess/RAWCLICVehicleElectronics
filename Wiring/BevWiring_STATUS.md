@@ -261,12 +261,15 @@ Three warnings:
 
 - **Do not recompute the tier shares.** Read `19_` sheet `Tier_Shares`, the same
   source `BevWiring.py` reads. Computing them twice guarantees divergence.
-- **`01_` EF lidar presence is wrong** — labelled `Opt` (0.50) against a real
-  2025 value near 0.01. A 50× gap, far outside every spread recorded in `19_`
-  sheet `Uncertainty`. It bites the moment this model is rewired.
-- **`06_` camera counts are low** (EF max 5 against 6–10 measured) and
-  **ultrasonics may be double-counted** (under both *Ultrasonic sensors* and
-  *Parking assist ECU*, 8–12 each, against 12–16 measured).
+- ~~**`01_` EF lidar presence is wrong** — labelled `Opt` (0.50).~~
+  **RESOLVED 2026-08-07:** `01_` now reads `–` (0.00) for lidar in all three
+  segments. It never affected sensor counts (ADAS rows are scaled by
+  `Presence_per_Tier`, where lidar is `Driver B`), but the models still reading
+  `01_` statically now see zero lidar everywhere. `docs/HANDOVER.md` §8 item 5.
+- ~~**`06_` camera counts are low** and **ultrasonics may be double-counted**.~~
+  **RESOLVED 2026-08-07:** cameras raised to AB 5–6 / CD 5–10 / EF 8–10; the
+  duplicate `Parking assist ECU` rows zeroed. The *"13–16 ultrasonic measured"*
+  figure could not be traced to a primary source and has been withdrawn.
 
 `06_` does **have** radar and lidar rows — the earlier claim that it did not was
 a naming mismatch and has been corrected in both that spec and `18_` sheet

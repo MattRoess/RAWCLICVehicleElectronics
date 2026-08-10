@@ -439,15 +439,31 @@ different per segment; remove both duplicate ECU rows.
    scope; probably not entirely. Report §9.0. **Not acted on** — the comparison
    is not like-for-like and over-reacting would be worse.
 
-5. **`01_` EF lidar presence is wrong** — labelled `Opt` (0.50) against ~0.01 in
-   2025. A 50× gap, far outside every spread in §7. **Deliberately not patched:**
-   there is no correct *static* value, because the right answer rises to ~0.70
-   over the model span. That it cannot be fixed statically is the argument for
-   the year dimension (item 1).
+5. **RESOLVED 2026-08-07.** ~~`01_` EF lidar presence is wrong — labelled `Opt`
+   (0.50) against ~0.01, deliberately not patched.~~ Both halves of that note
+   were stale. `01_` now reads **`–` (0.00) for lidar in all three segments**,
+   changed in the 2026-08-07 relabelling. On a four-level scale
+   (1.00/0.50/0.25/0.00) with real EF lidar at ~1–3% in 2025, `–` is the closest
+   available value.
+   **It does not affect sensor counts either way.** `SensorNumbersMC.py:545`
+   draws every ADAS row at factor 1.0 and scales by `Presence_per_Tier`, where
+   lidar is marked `Driver B` — so `01_`'s label is bypassed entirely for ADAS.
+   **The live consequence is elsewhere:** `SensorElementsMC.py` and the PCB
+   consolidation chain still read `01_` statically, so they now see **zero lidar
+   in every segment, permanently**, while the tier-driven model has EF rising
+   from ~3% to ~70%. Those two families now disagree about whether lidar exists.
+   Part of the `01_` re-run debt owed before step 7 (see PICK UP HERE §3).
 
-6. **`06_` camera counts low** (EF max 5 against 6–10 measured) and
-   **ultrasonics possibly double-counted** (under both *Ultrasonic sensors* and
-   *Parking assist ECU*, 8–12 each, against 12–16 measured). Check before summing.
+6. **RESOLVED 2026-08-07.** ~~`06_` camera counts low (EF max 5) and
+   ultrasonics possibly double-counted.~~ Both fixed:
+   cameras raised to **AB 5–6 / CD 5–10 / EF 8–10** (CMOS image sensor across
+   front, rear, side and the basic camera ECU), and the duplicate
+   `Parking assist ECU` rows — `ultrasonic sensor` and `camera input` — zeroed,
+   since that ECU is the controller for those sensors, not a second set.
+   Ultrasonics now sit only under `Ultrasonic sensors`: AB 4–8 / CD 8–10 /
+   EF 8–12.
+   Note the *"13–16 ultrasonic measured"* figure quoted in earlier documents
+   could not be traced to a primary source and has been withdrawn (§7c).
 
 7. **SDV timing not shifted +3.6 y** to match S&P. Agreed in principle, not
    applied to `18_`.

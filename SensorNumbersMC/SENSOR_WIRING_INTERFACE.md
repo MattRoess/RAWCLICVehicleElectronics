@@ -145,14 +145,18 @@ Radar and lidar reproduce measured reality exactly. What actually needs doing:
 
 1. **No time and no tier dimension.** The real gap, and the reason this document
    exists. See §3.
-2. **Camera counts are low** — EF max 5 against 6–10 measured. Raise EF to 8–12,
-   CD to 5–8, AB to 1–2 at the higher tiers. Note this is a 2× disagreement,
-   which is *ordinary* by the standards recorded in
-   `../docs/ADAS_Sensor_Adoption_Report_2025_2070.md` §1.2 — update the
-   numbers, but the file is not broken.
-3. **Possible ultrasonic double-count.** Ultrasonics appear under both
-   *Ultrasonic sensors* (8–12) and *Parking assist ECU* (8–12), against 12–16
-   measured on real cars. **Check before summing** — this may be a 2× error.
+2. ~~**Camera counts are low** — EF max 5 against 6–10 measured.~~
+   **RESOLVED 2026-08-07.** Raised to **AB 5–6 / CD 5–10 / EF 8–10** CMOS image
+   sensors, summed across front, rear, side and the basic camera ECU.
+3. ~~**Possible ultrasonic double-count.**~~ **CONFIRMED AND RESOLVED
+   2026-08-07.** It was a real double-count: `Parking assist ECU` carried
+   `ultrasonic sensor` and `camera input` ranges identical to the
+   `Ultrasonic sensors` and surround-camera rows. That ECU is their *controller*,
+   not a second set, so both rows are now zeroed. EF ultrasonic output fell
+   19.7 → 9.9.
+   The *"12–16 measured"* figure quoted here and elsewhere could **not be traced
+   to a primary source** and has been withdrawn. The retained basis is the
+   user's judgement: 8–12 for EF, since 6 front + 6 rear is already a full ring.
 
 ---
 
