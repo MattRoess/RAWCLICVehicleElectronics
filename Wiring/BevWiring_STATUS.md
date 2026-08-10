@@ -64,8 +64,11 @@ Europe (Mercedes paused Drive Pilot, BMW discontinued Personal Pilot L3) while
 sensor content keeps rising — so a level-keyed model gets the near-term trend
 backwards. Full argument in `AUTONOMY_LEVELS_VS_HARDWARE.md`.
 
-The old autonomy driver still exists behind `USE_TIER_AXIS = False`, for
-comparison runs only. It is not maintained.
+The old autonomy driver was **deleted on 2026-08-10** — flag, function, sheets
+and levers. It had not driven the answer since 2026-08-06 but still looked live,
+which is how the drivers figure came to show "Autonomy L3 or better" as a model
+driver four days after it stopped being one. `git show 554633e:Wiring/BevWiring.py`
+to compare against the old behaviour.
 
 **Copper is never read as a given.** Always length × gauge × density. Both
 sources' direct copper figures are unreliable — the source report's own
