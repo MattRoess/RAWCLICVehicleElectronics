@@ -256,6 +256,69 @@ these five groups. It would be the first time it is actually built.
    per-component scaling factor for 25–30 components. Smaller to specify, and
    much harder to get wrong.
 
+### 2.2b P-b′ APPLIED, 2026-08-10 — the overcount is fixed
+
+**15 cells changed in `01_`.** G1 and G3 members set to `Opt` in all three
+segments — the 50/50 mixture, one of only three mixtures a four-level scale can
+express self-consistently (0%, 50%, 100%; p = 0.25 and 0.75 would need a
+presence of 0.75, which is not on the scale).
+
+| | boxes per car, before → after |
+|---|---|
+| **G1** charging, AB / CD / EF | 2.50 → **1.50** / 3.00 → **1.50** / 3.00 → **1.50** |
+| **G3** cockpit, AB / CD / EF | 1.75 → **1.50** / 2.50 → **1.50** / 3.00 → **1.50** |
+
+A car has either one integrated box or two discrete ones, so a 50/50 mixture
+averages 1.50. That is now true **by construction**.
+
+**Measured effect on the model:**
+
+| | before | after | |
+|---|---|---|---|
+| AB mean total area | 16,906.5 | **15,417.9** | **−8.80%** |
+| CD | 23,309.1 | **20,633.0** | **−11.48%** |
+| EF | 27,159.1 | **23,914.5** | **−11.95%** |
+| **AB large PCBs** | 10.4 | **8.5** | **−18.1%** |
+| **CD large PCBs** | 13.2 | **10.0** | **−24.5%** |
+| **EF large PCBs** | 14.0 | **10.0** | **−28.6%** |
+
+Large boards move most, which is the right signature: the charging and cockpit
+modules are precisely the large-board components, while small and medium boards
+shift only 2–4%.
+
+**The PCB numbers were 9–12% too high**, and had been since before this work
+started. This is a **correction to a counting error, not a change of model.**
+
+**Why 50/50 and not a segment gradient:** the same decision as the `06_` battery
+rows, which were rebased to a 400V *basis* so the file holds a neutral anchor
+and the driver carries the transition. `01_` is now the neutral 2025 anchor; the
+G1/G3 split probability will carry the trend, including the segment gradient —
+which a driver expresses continuously instead of in four coarse steps.
+
+#### Not fixed: G2
+
+`01_` still has, for EF, front traction inverter `Std` **and** rear traction
+inverter `Std` **and** Integrated e-axle `Std` — the same triple-count.
+
+Left alone deliberately: unlike G1 and G3, the group total is not one unit but
+**one or two drive units depending on AWD**, so it needs a decision on
+dual-motor share before the arithmetic can be set.
+
+#### A warning for anyone editing `01_`
+
+**Do not add a `Notes` sheet to `01_VehicleElectronics.xlsx`.**
+
+I did, to protocol this change, and it **broke both sensor models**.
+`SensorNumbersMC.py:126` and `SensorElementsMC.py:148` iterate *every* sheet in
+the workbook with a fixed `usecols=['Domain','Component','A-B Segment',
+'C-D Segment','E-F Segment']`. Any sheet lacking those five columns raises
+`ValueError: Usecols do not match columns`.
+
+`06_` and `18_` tolerate a `Notes` sheet because their readers name one sheet.
+`01_` does not. The sheet was removed and this note is where that protocol now
+lives instead. Caught only because `SensorElementsMC` failed loudly — it would
+have been a silent breakage in a less strict reader.
+
 ### 2.3 ADAS tier — real but small
 
 3.9% of area, and the tier composition is already built (`19_`
