@@ -1,24 +1,51 @@
 # Handover — BEV wiring and sensor models
 
-State as of **2026-08-07, end of session**. (Sections dated 2026-08-05 describe the previous
-session; section 7c is today.) Written so this work can be picked
+State as of **2026-08-10, end of session**. Written so this work can be picked
 up on another machine, or by a different assistant, without reconstructing
 anything from conversation.
+
+Session logs, newest last: **§7b** = 2026-08-05, **§7c** = 2026-08-07,
+**§7d** = 2026-08-10.
 
 ---
 
 ## PICK UP HERE
 
-### 1. State: steps 1-6 of 7 are DONE and committed
+*Updated 2026-08-10. The 2026-08-07 state is in §7c; today is §7d.*
 
-Nothing is uncommitted. Four commits on 2026-08-07, newest last:
+### 0. FIRST — there may be an uncommitted file and a broken permission
 
-    105b2bf  module basis, per-segment tiers, V15
-    7d83b87  close step 5: 01_ relabelled, V13 re-scoped, EF H4 corrected
-    99cf3e1  documents
-    54583d8  step 6: architecture factor on ADAS metres-per-sensor
+The 2026-08-10 session **ended with the macOS Documents permission lapsing
+mid-session**. Symptom: reading a file works, `ls` on the repo directory returns
+`Operation not permitted`, and **git cannot run at all**
+(`fatal: Unable to read current working directory`).
 
-### 2. Verify on a new machine
+**Fix:** System Settings → Privacy & Security → Files and Folders → Claude →
+**Documents Folder**, then **fully quit and reopen** the app. A window restart is
+not enough. Fallback: the repo is public —
+`gh repo clone MattRoess/RAWCLICVehicleElectronics`.
+
+**Then check for one uncommitted file:**
+
+```bash
+git status --short        # expect docs/PCB_MODEL_DESIGN.md, possibly untracked
+```
+
+`docs/PCB_MODEL_DESIGN.md` was written and revised but **never committed**. It
+is safe on disk. Commit it before doing anything else.
+
+### 1. State: steps 1-7a done. PCB design agreed, not built.
+
+Commits on **2026-08-10**, newest last:
+
+    75fc245  Driver E design note; correct the misleading drivers figure
+    e5b8f7a  Delete the SAE-level fallback path outright
+    ab3783e  Diagnostic: what the 01_ relabel broke, static/dynamic split
+    (uncommitted)  docs/PCB_MODEL_DESIGN.md, incl. the 800V research
+
+Earlier, on 2026-08-07: `105b2bf`, `7d83b87`, `99cf3e1`, `54583d8`.
+
+### 2. Verify
 
 ```bash
 python3 -c "import pandas,numpy,scipy,openpyxl,matplotlib; print('deps ok')"
@@ -26,31 +53,40 @@ python3 Wiring/BevWiring.py               # ~4 min
 python3 SensorNumbersMC/SensorNumbersMC.py
 ```
 
-Expect **wiring 9/9**, anchors AB 1408.7 / CD 2457.9 / EF 3505.5.
-Expect **sensor: V11, V12, V13 31/31 asserted, V14 915/915, V15 45/45 - all
-PASSED**, with 5 rows printed as "unresolvable on a 4-level scale" (that is
-correct, see S11).
+Expect **wiring 9/9**, anchors AB ~1413 / CD ~2483 / EF ~3502 *(these moved
+~0.3% on 2026-08-10 — pure Monte Carlo noise from the removed RNG draws, see
+§7d)*.
+Expect **sensor: V11, V12, V13 31/31 asserted, V14 915/915, V15 45/45**, with 5
+rows printed as "unresolvable on a 4-level scale" — that is correct, see §11.
 
-**macOS note.** On a machine where `~/Documents` is protected, Claude Code
-cannot read the repo until **System Settings -> Privacy & Security -> Files and
-Folders -> Claude -> Documents Folder** is enabled AND the app is fully quit and
-reopened. Until then only files the app itself created are readable, which looks
-like a corrupt checkout but is not. The repo is public on GitHub, so
-`gh repo clone MattRoess/RAWCLICVehicleElectronics` is a working fallback.
+**`USE_TIER_AXIS` no longer exists.** Any document telling you to set it is
+stale; the SAE-level path was deleted on 2026-08-10. `git show
+554633e:Wiring/BevWiring.py` to see the old behaviour.
 
-### 3. THE NEXT STEP IS STEP 7 - the PCB models
+### 3. NEXT: step 7 — PCB. Design agreed, P-a done, P-b is next.
 
-Step 6 was the last structural piece of the wiring/sensor pair. The hold that
-said "do not start step 6 or 7 until step 5 is signed off" is lifted; step 5 was
-signed off on 2026-08-07.
+**Read `docs/PCB_MODEL_DESIGN.md` first.** The single most important finding in
+it, because it inverts the obvious plan:
 
-The user has said explicitly: **"We will address PCBs later."** Do not start
-step 7 without asking.
+> **The ADAS tier driver is NOT what matters for PCB.** ADAS is 8.3% of board
+> *count* but only **3.9% of area** — it carries almost entirely small boards
+> (35 mm²) and **no large boards at all**. Area is dominated by **HV Powertrain
+> 30.8%** and **Infotainment 13.3%**. The drivers that matter are **voltage**
+> and **architecture** — the two oldest in the project, both already built, both
+> currently unused outside `BevWiring.py`.
 
-**Before step 7, one thing is owed:** `01_VehicleElectronics.xlsx` had 10 cells
-relabelled on 2026-08-07. `SensorElementsMC.py` and the PCB models also read
-`01_`, so their outputs have shifted and have NOT been re-run. That is the first
-thing to check when the PCB work starts.
+**P-a (800V research) is DONE** — §2.1a of that note. Answer: absolute board
+area is **roughly flat** (bounded −33% to +10%), because power density tripled
+while power ratings also tripled. The real 800V effect is **consolidation** into
+the "Combined OBC + DC/DC module", which `01_` already carries as a component.
+So the voltage driver is a **presence shift**, not a scaling factor.
+
+**P-b is next**: build the architecture and voltage presence tables for the
+~25–30 affected components. `17_` has an `SDV_Base_Length_Factor` per wire
+category; **`01_` has no equivalent, and that is the gap**. The architecture
+side has no data behind it at all.
+
+**Do not start without asking.**
 
 ## 0. WORKING RULES — read before doing anything
 
@@ -412,6 +448,111 @@ different per segment; remove both duplicate ECU rows.
   derived from `06_`, so both sides share a basis. It catches one side being
   hand-edited; it will not catch both being wrong together.
 
+
+---
+
+## 7d. SESSION LOG — 2026-08-10
+
+### 1. Two stale open items corrected (§8 items 5 and 6)
+
+Both claimed problems that Friday had already fixed. `01_` lidar is now `–` in
+all segments, not `Opt`; `06_` camera counts were raised and the ultrasonic
+double-count removed. Corrected in five documents. The report's §1.2
+`Uncertainty` rows were **kept** with a "since corrected" marker — that table
+measures *how far credible sources disagreed when checked*, which is what
+calibrates the band widths, so deleting resolved disagreements would make the
+chain look more consistent than it is.
+
+### 2. `drivers.png` corrected, then the dead path deleted
+
+The figure presented **"Autonomy L3 or better" as one of "the three independent
+drivers"** — false since 2026-08-06. Now four panels: architecture, 800V,
+hardware tier H3+, lidar.
+
+That bug is why the SAE-level fallback was then **deleted rather than disabled**:
+it had not driven the answer for four days but still looked live. Removed:
+`USE_TIER_AXIS`, `_derive_autonomy()`, `_tri()`, `LEVELS`, `Inputs.autonomy`,
+`Inputs.sensors`, `st_aut`, the else-branch, the `_levelaxis` suffix.
+
+**Four sheets in `18_` are now unread** — `Sensors_per_Level`,
+`Report_Scenarios`, `Conversion`, `Autonomy_Derived` — and with them
+**`Private_lag_y`, `Fleet_to_NewSales_lead_y`, `Europe_shift_y`,
+`Offset_*_y`**. Those levers were the subject of the long open-item-4 analysis;
+anyone finding that discussion would reasonably go and tune them.
+**`18_` sheet `Notes` now says explicitly that changing them has no effect.**
+
+Results moved **0.32% worst case** at n=20,000 — pure MC noise from the removed
+RNG draws, no systematic sign. 9/9 at 200k.
+
+### 3. The `01_` re-run diagnostic — and the lidar finding
+
+Read-only. Full detail in `docs/STATIC_MODELS_DIAGNOSTIC.md`.
+
+**The headline, and the thing the user specifically wanted understood:**
+
+> **Lidar is not dead. It is dead in HALF the model.**
+>
+> | | 2025 | 2040 | 2070 |
+> |---|---|---|---|
+> | year-resolved sensor model, EF lidar units/vehicle | 0.030 | 0.620 | **0.765** |
+> | Driver B equipped share, mode | 1% | 45% | **70%** |
+> | static models (`SensorElementsMC`, PCB chain) | **0** | **0** | **0** |
+>
+> `01_` records lidar as `–`, which is **correct for 2025**. But `01_` has no
+> year axis, so anything reading it statically carries that snapshot to 2070.
+> An artefact of a static model reading a snapshot label, **not a forecast**.
+
+Also found:
+
+- **The PCB models do not read `01_`.** Only via
+  `BEVElectronicsClassification.py` → `11_`. The earlier phrasing was wrong.
+- **`Data/11_` is 22 KB, not 0 bytes.** The zero-byte reading was an
+  **un-downloaded iCloud placeholder**. On this machine an evicted file looks
+  empty — remember that before diagnosing a "corrupt" input.
+- **PCB area moved**: AB −0.32%, CD −1.13%, EF −0.93%. Small boards **AB
+  +11.45%, EF −4.03%** — opposite directions, exactly as the labels predict.
+- **Sensor elements did not move at all.** The user had already re-run that
+  model. The debt was real for the PCB chain only.
+- Incidental: the duplicate `HV junction box / PDU` row is gone, 102 → 101.
+- **`Data/11_` and `12_` are model inputs but gitignored** (`*.csv`).
+  `PCBAreaMC` cannot run without `11_`. Regenerable via
+  `BEVElectronicsClassification.py`, but nothing documented that. **Undecided.**
+- **`Data/12_Motor_Distribution.csv` is generated and read by nothing.**
+
+### 4. Driver E designed — brand origin
+
+`docs/BRAND_ORIGIN_DESIGN.md`. **Not implemented.**
+
+Research **overturned the starting hypothesis**: Chinese brands do *not* bring
+lidar to Europe — BYD ships DiPilot 300 with lidar in China and DiPilot 100
+without it in Europe. But DiPilot 100 is **12 cameras and 5 radars on an
+A-segment car**, against 4–6 and 1–3 for an ID.3. **So the driver acts on
+Driver A (tier), not Driver B (lidar).**
+
+Key points: brand, not build location (made-in-China BEVs fell 22% → 17% of EU
+BEV while Chinese *brands* rose 4.5% → 10.9%); `Tier_Shares` is already a
+**blend** containing ~10% Chinese-brand vehicles, so the European table must be
+backed out — **fourth appearance of the renormalisation trap**, V16 catches it;
+scenarios C1/C2/C3 anchored on T&E's published 2035 bracket (15/22/30%).
+
+`T_DESPEC_END ~ triangular(2028, 2031, 2038), P(never)=0.20`. The trigger is
+**not** urban driving: **UN R171 DCAS (02 series, voted 24 June 2026)** enables
+urban hands-off at **Level 2 and needs no lidar**. What forces lidar is **R157
+liability transfer**, the path Mercedes and BMW abandoned. The **EU Automotive
+Omnibus (COM(2025) 95)** creates unlimited-series ADS approval, which is why the
+mode sits at 2031.
+
+### 5. PCB design note — see PICK UP HERE §3
+
+### 6. Motor scoping corrected by the user
+
+**`ElectricMotorMC` covers AUXILIARY motors — window lifts, seats, pumps,
+wipers, tailgate — NOT the traction powertrain.** So the drivers proposed
+earlier in the session (magnet chemistry, AWD share) are traction concerns and
+**do not apply**. Auxiliary motor counts are already in `01_` as the
+`StepperMotor_*` / `DCMotor_*` columns feeding the unused `12_`, so that work
+would share the **same presence mechanism as PCB** and is likely cheaper than
+first estimated. Order agreed: **PCB first, motors after.**
 
 ---
 
