@@ -70,12 +70,18 @@ source or none. Band widths in §4.2, §5.3 and §7 are set from §1.2, not inve
 | CD copper per vehicle, 2025 | model, length-first | 56.4 kg | source report, stated | 60.3 kg | 6.9% |
 | **EF wiring length, 2025** | report row sum | 3646 m | **same report**, stated total | 3546 m | **2.8%** |
 | SDV total length reduction | `17_` per-category mechanisms | −12/−11/−8% | `17_` stated totals | −44/−40/−23% | **3–4×** |
-| EF cameras, 2025 | `06_` max | 5 | measured EQS / EX90 | 6 / 10 | 2× |
-| EF lidar presence, 2025 | `01_` label "Opt" | 0.50 | measured + Driver B | 0.01 | **50×** |
+| EF cameras, 2025 † | `06_` max | 5 | measured EQS / EX90 | 6 / 10 | 2× |
+| EF lidar presence, 2025 † | `01_` label "Opt" | 0.50 | measured + Driver B | 0.01 | **50×** |
 | Europe lidar share, 2070 | this report Min | 0.25 | this report Max | 0.90 | 3.6× |
 | Global ADAS market size, 2025 | Polaris | $39.32 bn | NextMSC | $34.2 bn | 1.15× |
 | L2+ share, 2035 | NextMSC (**revenue**) | 25.2% | Yano (**units**) | 37.9% | 1.50× |
 | H2+H3 / L2+ share, 2025 | this report §4.1 | 40.5% | Yano units | 12.4% | 3.3× |
+
+**†** *The source has since been corrected — `06_` cameras are now 8–10 for EF,
+and `01_` lidar is now `–` in all segments (both 2026-08-07). The rows stay
+because this table measures **how far credible sources disagreed when checked**,
+which is what calibrates the band widths. Deleting resolved disagreements would
+make the chain look more consistent than it is.*
 
 **A note on evidence class.** The sources above are not equally strong, and
 mixing them without saying so would be a mistake:
@@ -467,14 +473,24 @@ not, and `01_` is the one that is wrong: EF lidar presence in 2025 is ~1%, not
 
 ### 6.4 What else must change in the sensor files
 
-1. **`06_` camera counts are low** (§2.3): EF max 5 CMOS against 6–10 measured.
-   Raise EF to 8–12, CD to 5–8, AB to 1–2, at H3/H4.
-2. **Possible ultrasonic double-count.** `06_` carries ultrasonics under both
-   *Ultrasonic sensors* (8–12) and *Parking assist ECU* (8–12). Measured cars
-   have 12–16 total. **Check before summing** — this may be a 2× error.
-3. **`01_` lidar presence** — see §6.3.
-4. **Add a `Year` and `Tier` dimension** to both files, or emit the composed
-   presence as a CSV the models read.
+**All four were done on 2026-08-06/07. Kept as the record of what was changed
+and why.**
+
+1. ~~**`06_` camera counts are low**~~ — **DONE.** Raised to **AB 5–6 /
+   CD 5–10 / EF 8–10** CMOS, across front, rear, side and the basic camera ECU.
+2. ~~**Possible ultrasonic double-count.**~~ — **CONFIRMED AND DONE.** It was
+   real: `Parking assist ECU` carried ranges identical to `Ultrasonic sensors`
+   and the surround cameras. That ECU is their controller, not a second set;
+   both its rows are now zeroed. EF ultrasonic output fell 19.7 → 9.9.
+   The *"12–16 measured"* figure could not be traced to a primary source and has
+   been withdrawn; the basis is now the user's judgement of 8–12 for EF, since
+   6 front + 6 rear is already a full ring.
+3. ~~**`01_` lidar presence**~~ — **DONE.** Now `–` (0.00) in all three
+   segments. Note §6.3 above is the *pre-correction* diagnosis and is left
+   standing as the reasoning that produced the change.
+4. ~~**Add a `Year` and `Tier` dimension**~~ — **DONE**, steps 4 and 5 of
+   `SENSOR_MODEL_DESIGN.md`. `SensorNumbersMC.py` runs 2020–2070 with the tier,
+   voltage and scenario drivers.
 
 ---
 

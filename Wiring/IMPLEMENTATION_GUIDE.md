@@ -189,7 +189,10 @@ mechanism this change exists to replace.
    2026-08-06 (`load_presence_per_tier`, `apply_adas_tier_presence`). This
    paragraph predated that commit by six minutes and was never refreshed.
 
-5. **`01_` EF lidar presence is wrong** — labelled `Opt` (0.50) against a real
-   2025 value near 0.01. A 50× gap, far outside every spread in sheet
-   `Uncertainty`. Not yet fixed, and it will matter as soon as
-   `SensorNumbersMC.py` is rewired.
+5. **RESOLVED 2026-08-07.** ~~`01_` EF lidar presence is wrong — labelled `Opt`
+   (0.50), not yet fixed.~~ `01_` now reads **`–` (0.00) for lidar in all three
+   segments**. It never affected sensor counts — ADAS rows are drawn unscaled
+   and scaled by `Presence_per_Tier`, where lidar is marked `Driver B`. What it
+   does affect is the models still reading `01_` statically
+   (`SensorElementsMC.py`, the PCB chain), which now see zero lidar everywhere.
+   See `docs/HANDOVER.md` §8 item 5.
