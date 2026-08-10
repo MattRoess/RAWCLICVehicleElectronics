@@ -55,6 +55,7 @@ Notes:
 
 import os
 import re
+import sys
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -267,38 +268,16 @@ BATTERY_ROWS = {'voltage sensor': UPLIFT_VOLTAGE_TRI,
                 'temperature sensor': UPLIFT_TEMPERATURE_TRI}
 
 
-def _monotone_curve(years, anchor_years, anchor_vals):
-    """PCHIP through the share anchors -- the SAME reader BevWiring uses, so the
-    two models cannot disagree about the curve. C1 and non-overshooting, so a
-    share stays in [0,1] and there is no kink at the 5-year anchors."""
-    from scipy.interpolate import PchipInterpolator
-    x = np.asarray(anchor_years, float)
-    y = np.asarray(anchor_vals, float)
-    o = np.argsort(x)
-    x, y = x[o], y[o]
-    if len(x) < 2:
-        return np.full(len(years), y[0] if len(y) else 0.0)
-    f = PchipInterpolator(x, y, extrapolate=False)
-    return np.clip(np.nan_to_num(f(np.clip(years, x[0], x[-1]))), 0.0, 1.0)
-
-
-def load_800v_share(years):
-    """800V share of new sales per segment, read from 18_ sheet Penetration.
-
-    Returns {segment: (n_years,)}. Single source of truth, shared with
-    BevWiring.py -- validation V12 checks the two agree.
-    """
-    if not PENETRATION_FILE.exists():
-        raise FileNotFoundError(f"Penetration workbook not found: {PENETRATION_FILE}")
-    pen = pd.read_excel(PENETRATION_FILE, sheet_name='Penetration', header=4)
-    pen = pen[pen['Driver'].notna()]
-    out = {}
-    for seg in ['AB', 'CD', 'EF']:
-        d = pen[(pen.Driver == 'Voltage') & (pen.Segment == seg)
-                & (pen.State == '800V')].sort_values('Year')
-        out[seg] = _monotone_curve(years, d.Year.to_numpy(float),
-                                   d.Share_Mode.to_numpy(float))
-    return out
+# --- shared driver curves -------------------------------------------------
+# ONE implementation, in tools/drivers.py, read by every model. Before
+# 2026-08-10 this reader lived here AND in Wiring/BevWiring.py; step 7 was about
+# to add a third copy in PCBAreaMC. Two models computing the same share from the
+# same file and drifting apart is exactly what V12 exists to catch.
+sys.path.insert(0, str(BASE_DIR / "tools"))
+from drivers import (monotone_curve as _monotone_curve,      # noqa: E402
+                     load_800v_share,
+                     load_presence_per_tier as _load_presence_shared,
+                     LIDAR_H4_FLOOR)
 
 
 print("\nLoading the 800V penetration curve from 18_ (shared with BevWiring)...")
@@ -337,53 +316,9 @@ LIDAR_H4_FLOOR = 0.80        # 19_ Presence_per_Tier: H4 = max(Driver B, 0.80)
 
 
 def load_presence_per_tier(years):
-    """presence(component, segment, year) for every ADAS component in 19_.
-
-    Returns {component: {segment: (n_years,)}}, each value a share in [0,1].
-    """
-    if not ADAS_FILE.exists():
-        raise FileNotFoundError(
-            f"ADAS adoption workbook not found: {ADAS_FILE}\n"
-            f"Generate it with: python3 tools/make_19_adas_sensor_adoption.py")
-
-    ts = pd.read_excel(ADAS_FILE, sheet_name='Tier_Shares', header=3)
-    ts = ts[ts['Segment'].notna()]
-    shares = {}
-    for seg in ['AB', 'CD', 'EF']:
-        d = ts[ts.Segment == seg].sort_values('Year')
-        m = np.vstack([_monotone_curve(years, d.Year.to_numpy(float),
-                                       d[t].to_numpy(float)) for t in TIERS])
-        shares[seg] = m / np.maximum(m.sum(axis=0, keepdims=True), 1e-12)
-
-    ld = pd.read_excel(ADAS_FILE, sheet_name='Lidar', header=3)
-    ld = ld[ld['Year'].notna()].sort_values('Year')
-    lidar = _monotone_curve(years, ld.Year.to_numpy(float),
-                            ld['Share_Mode'].to_numpy(float))
-
-    pr = pd.read_excel(ADAS_FILE, sheet_name='Presence_per_Tier', header=3)
-    pr = pr[pr['Component'].notna() & pr[TIERS].notna().any(axis=1)]
-
-    out = {}
-    for _, r in pr.iterrows():
-        comp = str(r['Component']).strip()
-        per_tier = []
-        for t in TIERS:
-            v = r[t]
-            # Anything not a finite number is the Driver B marker. Checking for
-            # a string is not enough: if the marker is ever written with a
-            # leading "=", Excel stores it as a formula and every reader sees
-            # NaN. Treating NaN as the marker makes this robust either way.
-            per_tier.append(None if (isinstance(v, str) or pd.isna(v)) else float(v))
-        out[comp] = {}
-        for seg in ['AB', 'CD', 'EF']:
-            acc = np.zeros(len(years))
-            for ti, t in enumerate(TIERS):
-                p = per_tier[ti]
-                if p is None:               # lidar: Driver B, floored at H4
-                    p = lidar if t == 'H3' else np.maximum(lidar, LIDAR_H4_FLOOR)
-                acc = acc + shares[seg][ti] * p
-            out[comp][seg] = np.clip(acc, 0.0, 1.0)
-    return out
+    """Thin wrapper: the composition itself lives in tools/drivers.py so the
+    PCB models can use the identical implementation."""
+    return _load_presence_shared(years)
 
 
 print("Loading the ADAS tier axis from 19_ (shared with BevWiring)...")
