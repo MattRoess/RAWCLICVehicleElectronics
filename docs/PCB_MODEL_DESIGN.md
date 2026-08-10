@@ -295,14 +295,61 @@ and the driver carries the transition. `01_` is now the neutral 2025 anchor; the
 G1/G3 split probability will carry the trend, including the segment gradient —
 which a driver expresses continuously instead of in four coarse steps.
 
-#### Not fixed: G2
+#### G2 also fixed, 2026-08-10
 
-`01_` still has, for EF, front traction inverter `Std` **and** rear traction
-inverter `Std` **and** Integrated e-axle `Std` — the same triple-count.
+Unlike G1 and G3, the group total here is not one unit but **one or two drive
+units depending on AWD**, so it needed an AWD share.
 
-Left alone deliberately: unlike G1 and G3, the group total is not one unit but
-**one or two drive units depending on AWD**, so it needs a decision on
-dual-motor share before the arithmetic can be set.
+**Evidence:** AWD is **45.4% of the European electric SUV market in 2025**
+(FACT). SUVs skew high, so all-BEV AWD is lower and rises with segment. AB's
+volume sellers are effectively all single-motor (Renault 5, Leapmotor T03,
+ID.3); CD's are mostly RWD with AWD variants (Model Y, ID.4, Enyaq); EF is the
+most AWD-heavy (iX is AWD-only, Taycan mostly AWD).
+
+| | front inverter | rear inverter | e-axle | units/car | implied AWD |
+|---|---|---|---|---|---|
+| **AB** | `Std`→`Opt` | `Opt`→`–` | `Opt` | 2.00 → **1.00** | 0% |
+| **CD** | `Std`→`Opt` | `Std`→`Rare` | `Std`→`Opt` | 3.00 → **1.25** | 25% |
+| **EF** | `Std`→`Opt` | `Std`→`Opt` | `Std`→`Opt` | 3.00 → **1.50** | 50% |
+
+Front unit always present, split 50/50 discrete vs integrated — the same neutral
+anchor as G1 and G3. **The rear inverter's presence carries the AWD share**,
+which is the only genuinely new judgment.
+
+**Measured effect of G2 alone:**
+
+| | before | after | |
+|---|---|---|---|
+| AB mean area | 15,417.9 | **14,385.1** | **−6.70%** |
+| CD | 20,633.0 | **18,824.8** | **−8.76%** |
+| EF | 23,914.5 | **22,365.3** | **−6.48%** |
+| **CD large PCBs** | 10.0 | **7.4** | **−26.3%** |
+
+Again concentrated in large boards — drive-unit electronics are large-board
+components — with medium boards moving under 1.2%.
+
+**Known limitation:** EF at 50% AWD is arguably low; 60–70% is probably truer.
+But the four-level scale offers only 50% or 100% at that point, and 100% would
+be clearly wrong. Same quantisation ceiling V13 hit. It is an argument for the
+split eventually living in a **driver** rather than a label — which is exactly
+what P-b will do.
+
+#### Combined effect of P-b′ (G1 + G3 + G2)
+
+| | original | after G1+G3 | after G2 | total |
+|---|---|---|---|---|
+| AB | 16,906.5 | 15,417.9 | **14,385.1** | **−14.9%** |
+| CD | 23,309.1 | 20,633.0 | **18,824.8** | **−19.2%** |
+| EF | 27,159.1 | 23,914.5 | **22,365.3** | **−17.6%** |
+| EF large PCBs | 14.0 | 10.0 | **7.8** | **−44.3%** |
+
+**PCB area was 15–19% too high**, and large-board counts were nearly double what
+they should have been. All of it a counting error present before this work
+started, none of it a modelling change.
+
+**Verified after G2:** `SensorNumbersMC` V11 PASSED, V12 PASSED, V13 31/31,
+V14 915/915, V15 PASSED; `SensorElementsMC` exit 0; `PCBAreaMC` exit 0;
+wiring 9/9.
 
 #### A warning for anyone editing `01_`
 
@@ -411,7 +458,7 @@ consumer of the architecture and voltage drivers outside `BevWiring.py`.
 |---|---|---|
 | ~~**P-a**~~ | ~~Research the 800V PCB effect~~ | **DONE 2026-08-10, §2.1a.** Absolute area roughly flat (−33% to +10%); the real effect is **consolidation**, expressible through the existing presence mechanism |
 | **P-b** | **REDEFINED 2026-08-10 by §2.2a.** Not a scaling table — a **substitution-group table**: five groups (G1–G5), each with a group total and a split probability. **G4's split is already in `18_`** and G5 is already built. Only G1–G3 need new numbers | group totals sum to one car's worth; 2025 composition reproduces observed board counts |
-| **P-b′** | **Fix the present-day overcount** (§2.2a) — ~12–14% of PCB area is in components that are alternatives to each other, currently added together | EF HV group falls from 3,558 to ~1,370–2,188 mm² |
+| ~~**P-b′**~~ | ~~Fix the present-day overcount~~ | **DONE 2026-08-10, §2.2b.** G1, G2 and G3 all fixed. PCB area fell **14.9 / 19.2 / 17.6%** (AB/CD/EF); EF large boards **−44.3%**. All validation green |
 | **P-c** | Extract the shared presence module; repoint `SensorNumbersMC` at it | sensor results unchanged, V11–V15 still pass |
 | **P-d** | Port the accumulator into `PCBAreaMC`, no drivers | **P5**, **P1** |
 | **P-e** | Add the year axis and all three drivers | **P2**, **P3**, **P4** |
