@@ -361,96 +361,14 @@ N_ITER_RAW = 20000         # draws kept in full, for figures, the detailed CSV
 CHUNK_ITER = 20000         # draws simulated at once. Peak memory is set by
                            # THIS, not by N_ITER_STATS.
 
-N_HIST_BINS = 50           # project convention, same as the wiring model
-N_ACC_BINS = 1000          # INTERNAL resolution, so percentiles are not
-                           # quantised to 1/50th of the range. Must be a
-                           # multiple of N_HIST_BINS.
 PILOT_ITER = 2000          # draws used only to find the accumulator range
-PILOT_PAD = 0.35           # fractional widening of the pilot range
 
-assert N_ACC_BINS % N_HIST_BINS == 0, "N_ACC_BINS must be a multiple of N_HIST_BINS"
-
-
-class Accumulator:
-    """Fixed-bin histogram accumulator. Memory independent of the draw count.
-
-    Ported from Wiring/BevWiring.py. The trailing axis is a series axis, length
-    1 today; step 4 makes it the year axis without touching this class.
-    """
-
-    def __init__(self, lo, hi, n_series=1, n_bins=N_ACC_BINS):
-        lo = np.atleast_1d(np.asarray(lo, dtype=float))
-        hi = np.atleast_1d(np.asarray(hi, dtype=float))
-        span = np.where(hi - lo <= 0, 1.0, hi - lo)
-        self.lo = lo - PILOT_PAD * span / 2.0
-        self.hi = hi + PILOT_PAD * span / 2.0
-        self.width = np.where((self.hi - self.lo) / n_bins <= 0, 1.0,
-                              (self.hi - self.lo) / n_bins)
-        self.n_bins = n_bins
-        self.counts = np.zeros((n_series, n_bins), dtype=np.int64)
-        self.total = np.zeros(n_series)
-        self.total_sq = np.zeros(n_series)      # for std, which BevWiring did not need
-        self.vmin = np.full(n_series, np.inf)
-        self.vmax = np.full(n_series, -np.inf)
-        self.n = 0
-        self.under = np.zeros(n_series, dtype=np.int64)
-        self.over = np.zeros(n_series, dtype=np.int64)
-
-    def add(self, arr):
-        """arr: (n_chunk,) or (n_chunk, n_series)."""
-        if arr.ndim == 1:
-            arr = arr[:, None]
-        self.n += arr.shape[0]
-        self.total += arr.sum(axis=0)
-        self.total_sq += (arr ** 2).sum(axis=0)
-        self.vmin = np.minimum(self.vmin, arr.min(axis=0))
-        self.vmax = np.maximum(self.vmax, arr.max(axis=0))
-        idx = np.floor((arr - self.lo[None, :]) / self.width[None, :]).astype(np.int64)
-        self.under += (idx < 0).sum(axis=0)
-        self.over += (idx >= self.n_bins).sum(axis=0)
-        np.clip(idx, 0, self.n_bins - 1, out=idx)
-        for s in range(arr.shape[1]):
-            self.counts[s] += np.bincount(idx[:, s], minlength=self.n_bins)
-
-    @property
-    def mean(self):
-        return self.total / max(self.n, 1)
-
-    @property
-    def std(self):
-        m = self.mean
-        return np.sqrt(np.maximum(self.total_sq / max(self.n, 1) - m ** 2, 0.0))
-
-    def percentile(self, q):
-        """q in 0..100. Linear interpolation within the containing bin."""
-        out = np.empty(self.counts.shape[0])
-        for s in range(self.counts.shape[0]):
-            c = np.cumsum(self.counts[s])
-            target = q / 100.0 * c[-1]
-            i = min(int(np.searchsorted(c, target)), self.n_bins - 1)
-            below = c[i - 1] if i > 0 else 0
-            frac = (target - below) / max(self.counts[s][i], 1)
-            out[s] = self.lo[s] + (i + frac) * self.width[s]
-        return out
-
-    def coarse(self, s, n_out=N_HIST_BINS):
-        """Sum the fine bins down to exactly n_out bins. Exact, because
-        N_ACC_BINS is a multiple of N_HIST_BINS."""
-        k = self.n_bins // n_out
-        counts = self.counts[s].reshape(n_out, k).sum(axis=1)
-        w = self.width[s] * k
-        edges = self.lo[s] + np.arange(n_out + 1) * w
-        return edges, counts
-
-    def coarse_mode(self):
-        """Mode read off the SAME 50 bins that get exported, so the reported
-        mode can always be reproduced from the histogram."""
-        out = np.empty(self.counts.shape[0])
-        for s in range(self.counts.shape[0]):
-            e, c = self.coarse(s)
-            i = int(np.argmax(c))
-            out[s] = 0.5 * (e[i] + e[i + 1])
-        return out
+# Accumulator, N_HIST_BINS, N_ACC_BINS and PILOT_PAD now come from
+# tools/accumulator.py -- one implementation, shared with BevWiring and the PCB
+# models. See that module for what is exact (mean/std/min/max/correlations) and
+# what is binned (percentiles, mode).
+from accumulator import (Accumulator, CoMoments,      # noqa: E402,F401
+                         N_HIST_BINS, N_ACC_BINS, PILOT_PAD)
 
 
 def run_batch_simulation(df, segment, ndraws, unscaled_mask=None):
