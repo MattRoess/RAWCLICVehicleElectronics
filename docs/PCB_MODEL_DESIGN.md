@@ -462,8 +462,15 @@ cabling*, not circuit board — the inverter electronics are the same either way
 | **G3** | integration share | 287 mm² (1.3%) |
 
 **Under 9% combined**, and that is the full range, not the realistic 2025→2070
-movement. Meanwhile **G4 reaches 55.5% of PCB area and its split probability is
-already in `18_`.**
+movement. Meanwhile ~~**G4 reaches 55.5% of PCB area**~~ **G4's split
+probability is already in `18_`.**
+
+> **CORRECTION 2026-08-11 — see §2.2f.** The "55.5%" in the struck sentence was
+> the *pool* of controller-like components (§1, 64 of 101), not G4's reach.
+> Measured, **G4+G5 as specified reach 8.2% of EF area** — the same size as
+> G1+G2+G3's ~8.9%, not six times larger. The comparison above was pool against
+> swing. Option B still stands, but on the "G4 is free, G1–G3 need new data"
+> argument alone.
 
 **DECISION (user, 2026-08-10): option B.** Skip the G1–G3 curves for now. Go
 straight to P-c/P-d/P-e with **G4 and G5 only**, since neither needs new data,
@@ -549,6 +556,95 @@ a third copy.
 
 ---
 
+### 2.2f MEASURED 2026-08-11 — what G4 and G5 actually reach
+
+Checked before writing any P-e code, against `11_` with mode board areas from
+`03_` (small 35, medium 168, large 550 mm²), EF segment:
+
+| | components | EF area |
+|---|---|---|
+| "controller-like" pool (§1) | 56 of 101 | **50.7%** |
+| **G4 as specified** — BCM, ABS/ESC, 4 domain controllers, zone controller, central computer | 7 | **8.1%** |
+| **G5 as specified** — ADAS camera ECU (basic) | 1 | **0.1%** |
+| **G4 + G5** | 8 | **8.2%** |
+| G1 + G2 + G3 full swing (§2.2c) | | ~8.9% |
+
+(The pool figure corroborates §1's 55.5% to within a regex definition — 56 vs 64
+components, 50.7% vs 55.5%. The pool claim is sound; only its *reuse* as G4's
+reach was wrong.)
+
+**The G4 mapping is real and the data is there.** All seven components exist in
+`11_` and their presence factors already encode the architecture gradient
+without anything being invented:
+
+| | AB | CD | EF |
+|---|---|---|---|
+| Body Control Module, ABS/ESC | 1.00 | 1.00 | 1.00 |
+| Powertrain / Body-comfort domain controller | 0.25 | 0.50 | 1.00 |
+| Chassis / ADAS domain controller | 0.00 | 0.50 | 1.00 |
+| Zone controller | 0.00 | 0.25 | 1.00 |
+| Automated driving central computer | 0.00 | 0.00 | 0.50 |
+
+Conventional flat at 1.0, domain controllers rising with segment, zonal premium
+first — the same premium-first gradient as every other transition here.
+
+**Why 8.2% and not 51%.** The seven named components are the visible tip. §1's
+own anchor — 80–150 discrete ECUs collapsing to under 20, VW SSP targeting ECUs
+down >50% — implies the other ~49 controller-like components also collapse.
+Modelling that means stating *which* ones and *how far*, which is precisely §7
+open question 3: **the PCB equivalent of zonal consolidation is not recorded
+anywhere.** It needs sourcing, not assertion.
+
+**DECISION (user, 2026-08-11):** build P-e narrow — year axis, the 7 named
+components, and the ADAS tier. Free, no new data. The broad question becomes
+its own step **P-g**, with proper evidence behind it.
+
+**Honest expectation for P-e:** PCB area moves by order 8%, not half. The
+deliverable of P-e is the *year axis itself* — the thing that makes the PCB
+chain stop being a 2025 snapshot — not the size of the architecture effect.
+
+---
+
+### 2.2g P-e SPECIFICATION — presence per architecture state
+
+The mapping in §2.2a is prose. The model needs cells. Proposed
+`presence(component | state)`, to be drawn discretely per vehicle and held
+across years:
+
+| `11_` component | Conventional | Transitional | SDV_Zonal | confidence |
+|---|---|---|---|---|
+| Body Control Module (BCM) | **1** | **1** | **0** | high — this is the textbook casualty of zonal |
+| Powertrain domain controller | **0** | **1** | **0** | high |
+| Chassis domain controller | **0** | **1** | **0** | high |
+| Body/comfort domain controller | **0** | **1** | **0** | high |
+| Zone controller (front/rear/etc.) | **0** | **0** | **1** | high |
+| Automated driving central computer | **0** | **0** | **1** | high |
+| ABS/ESC control module (EBCM) | **1** | **1** | **1** | **JUDGEMENT** — see below |
+| ADAS domain controller / fusion ECU | **0** | **1** | **1** | **JUDGEMENT** — see below |
+
+**The two judgement cells, stated rather than buried:**
+
+1. **ABS/ESC survives all three states.** Braking is safety-critical with its own
+   ASIL rating and hydraulic hardware; it is not usually collapsed into a zone
+   controller even in fully zonal designs. If this is wrong, EF loses another
+   ~1.3% of area at high zonal share.
+2. **ADAS domain controller persists into SDV_Zonal.** It could instead be
+   absorbed by the central computer, making it `0`. Kept at `1` because `19_`
+   already governs ADAS compute through the tier axis (G5), and zeroing it here
+   would double-count a consolidation the tier driver is already applying.
+
+**Renormalisation at `BASE_YEAR = 2025` is mandatory.** The static `11_` factors
+are the *observed* 2025 blend, so composing presence from state shares and
+applying it from zero would double-count. Same treatment as `BevWiring`'s
+`exp_base`: divide by the expected presence at 2025 given that year's shares, so
+the ensemble mean is anchored while the spread is untouched. **This is the #1
+documented silent breaker in this project.**
+
+**Draw discipline:** one architecture state per iteration, comonotonic across
+years (§2.2d). A vehicle is one design, never a blend.
+
+---
+
 ## 5. Validation targets
 
 | # | Target | Tolerance | Catches |
@@ -572,8 +668,9 @@ consumer of the architecture and voltage drivers outside `BevWiring.py`.
 | ~~**P-b**~~ | **DEFERRED 2026-08-10, §2.2c — option B.** The G1–G3 curves are worth under 9% combined, close to the project's ~3% noise floor. G2's split is worth *nothing* to PCB area (e-axle and discrete inverter carry identical boards). **G4 needs no new data and reaches 55.5% of area** — measure it first, then decide whether G1–G3 are worth specifying | deferred |
 | ~~**P-b′**~~ | ~~Fix the present-day overcount~~ | **DONE 2026-08-10, §2.2b.** G1, G2 and G3 all fixed. PCB area fell **14.9 / 19.2 / 17.6%** (AB/CD/EF); EF large boards **−44.3%**. All validation green |
 | ~~**P-c**~~ | ~~Extract the shared presence module; repoint `SensorNumbersMC` at it~~ | **DONE 2026-08-10, §2.2e — commit `36b21a4`.** Scope widened to `BevWiring` as well. `SensorNumbersMC` stdout **byte-identical** (2641 lines); `BevWiring` reproduces its baseline to 4.98e-07. V11–V15 pass, `validate()` 9/9 |
-| **P-d** | Port the accumulator into `PCBAreaMC`, no drivers | **P5**, **P1** |
-| **P-e** | Add the year axis and the drivers — **G4 and G5 only** per §2.2c. Architecture must be a **discrete per-vehicle state, comonotonic across years**, not a share-weighted average (§2.2d) | **P2**, **P3**, **P4** |
+| ~~**P-d**~~ | ~~Port the accumulator into `PCBAreaMC`, no drivers~~ | **DONE 2026-08-10, commit `d02f266`.** Memory 235 MB → 1.2 MB (12 GB → 1.2 MB at 51 years). P1/P5 **125 of 126** statistics inside ±3%; `total_area` mean ≤0.012%. The one exception is `AB total_large_area` **mode** (+3.21%), whose definition changed deliberately to the exported 50 bins. Raw draws CSV → float32 `.npy`; 522 MB of superseded CSV deleted |
+| **P-e** | Add the year axis and the drivers — **G4 and G5 only, NARROW** per §2.2f: the 7 named components + ADAS tier, reach **8.2%**. Architecture must be a **discrete per-vehicle state, comonotonic across years**, not a share-weighted average (§2.2d) | **P2**, **P3**, **P4** |
+| **P-g** | **NEW 2026-08-11, §2.2f.** How far zonal consolidation collapses the *other* ~49 controller-like components (the pool is 50.7% of EF area). Needs a sourced specification — §7 open question 3. Anchors: 80–150 ECUs → under 20; VW SSP ECUs down >50% | not yet specified |
 | **P-f** | Flow the year axis into `PCBElementMC` | element mass at 2025 unchanged |
 
 ~~**P-a comes first and produces no code.**~~ **Done.** It was worth doing first:
@@ -652,3 +749,64 @@ Auxiliary motor counts already sit in `01_` as the `StepperMotor_*` and
 work would share the **same presence mechanism** as PCB, and is likely cheaper
 than first estimated — architecture (zonal moves motor drivers into zone
 controllers) and feature content, not materials science.
+
+---
+
+### 2.2h P-e BLOCKED 2026-08-11 — the state mapping contradicts `11_`
+
+Found by checking the §2.2g table against the observed 2025 factors *before*
+writing code. **P-e cannot be implemented as specified.**
+
+Composed presence (from `18_` architecture shares) vs observed (`11_`), 2025:
+
+| component | seg | observed | composed | renorm |
+|---|---|---|---|---|
+| Zone controller | EF | 1.00 | 0.137 | **7.30×** |
+| Zone controller | AB | 0.00 | 0.090 | **0** |
+| Automated driving central computer | CD | 0.00 | 0.113 | **0** |
+| ADAS domain controller | AB | 0.00 | 0.773 | **0** |
+| Powertrain domain controller | EF | 1.00 | 0.797 | 1.25× |
+
+2025 architecture shares, EF: **6.6% Conventional / 79.7% Transitional /
+13.7% SDV_Zonal**.
+
+**The contradiction.** `18_` says 13.7% of EF cars are zonal; `11_` marks the
+zone controller `Std`, i.e. every EF car has one. Both cannot hold under a
+binary state→component mapping.
+
+**Why they disagree — they answer different questions.** `11_`'s ordinal label
+means *"is this component typical in this segment?"*. A transitional 2025
+premium car can carry one or two zone controllers without being a zonal
+architecture. Component presence is **not** conditional on the architecture
+state in the way §2.2a's prose mapping assumes.
+
+**Why renormalisation would have hidden it, in two different bad ways:**
+
+1. **A 7.3× multiplier** on the EF zone controller to force 2025 agreement —
+   distortion presented as calibration.
+2. **Where observed is 0.00** (AB zone controller, CD central computer, AB ADAS
+   domain controller) the multiplicative renormaliser gives **zero**, and the
+   component is dead in *every* year to 2070 even at 90% zonal share. This is
+   exactly the lidar-dead-forever failure in `STATIC_MODELS_DIAGNOSTIC.md`,
+   rebuilt in a new place.
+
+**Also found: non-breaking spaces in `11_` component names.** The BCM is stored
+as `'Body\xa0Control\xa0Module\xa0(BCM)'` (U+00A0). Exact-match lookup returns
+nothing and **fails silently** — it skipped the component without error. Any
+name-keyed code must normalise whitespace first.
+
+**Options for resolving, none yet chosen:**
+
+- **(a) Presence multiplier, not presence replacement.** Keep `11_`'s observed
+  factor as the 2025 anchor and let the architecture state apply a *relative*
+  multiplier that starts at 1.0 in 2025 — additive-in-log rather than
+  multiplicative-from-zero. Survives the observed-zero case.
+- **(b) Fix the disagreement at source.** Decide whether `11_`'s zonal labels or
+  `18_`'s zonal share is the one that is wrong, and correct that file. Cleanest
+  conceptually; touches a validated input.
+- **(c) Split the concept.** "Has a zone controller" and "is a zonal
+  architecture" become two different variables, the first driven by the second
+  but not equal to it.
+
+Option (a) is the smallest change and the only one that cannot resurrect the
+dead-component bug. **Not decided — needs the user.**
