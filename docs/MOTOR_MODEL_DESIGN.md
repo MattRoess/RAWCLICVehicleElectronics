@@ -146,7 +146,21 @@ numbers, and they would fail loudly if the headroom anchors were mis-ordered.
 | ~~**M-a**~~ | ~~Add the anchors to a new sheet in `05_`~~ | **DONE 2026-08-11.** `Motor_Growth` sheet written, header row 26, reads exactly 3 rows. `ElectricMotorMC` re-run: exit 0, 4 material sheets loaded — unchanged |
 | **M-b1** | ~~`HIST_BINS 140 -> 50`~~ | **DONE 2026-08-11.** Imported from `tools/accumulator.py`, not redeclared. Histogram CSVs 140 rows -> 50, `ElectricMotorMC` exit 0 |
 | **M-b2** | Port the accumulator into `ElectricMotorMC` | **NOT DONE.** Bigger than the PCB port: this model holds `N_SAMPLES` arrays through a three-deep nested loop, so chunking means restructuring the main body. Not a blocker for M-c (51 years is ~82 MB/metric, uncomfortable not fatal) |
-| **M-b3** | **Raw samples CSV -> `.npy`** | **NOT DONE, and larger than the PCB case: 658 MB.** `materials_samples_csv` 527 MB + `samples_csv` 131 MB. Same decision as PCBAreaMC on 2026-08-10 (float32 `.npy`, `mmap_mode="r"`, ~4.6x smaller). Note `ElectricMotorElementMC` resamples `materials_histograms_csv`, NOT these, so the conversion is self-contained |
+| ~~**M-b3**~~ | ~~Raw samples CSV -> `.npy`~~ | **DONE 2026-08-11.** 24 files converted to float32 `.npy` + `.json` sidecars, all verified `(200000, n)` and finite before the old CSVs were removed. `ElectricMotorMC/` **812 MB -> 154 MB, 657 MB freed** — more than the 522 MB cleared from PCBAreaMC |
+
+**Histogram CSVs are deliberately NOT converted.** User, 2026-08-11: *"it was
+the idea to pass the output of the MC as PDF to potential users of the data"* —
+the histograms **are** the product, the probability density function handed to
+downstream users. They stay CSV: small (136 KB), human-readable, openable
+anywhere. Only the write-only intermediate sample draws went binary.
+
+**Open question this raises.** M-b1 took the histograms 140 bins -> 50 for
+suite-wide comparability, which **coarsens the delivered PDF**. The project's
+own answer is in `tools/accumulator.py`: hold 1000 bins internally and sum down
+to 50 only on export, so percentiles are not quantised to 2% of the range.
+`coarse(s, n_out=...)` can emit any divisor of 1000. **Decide at M-b2** whether
+motors should export a finer PDF alongside the comparable 50-bin one — it
+becomes a parameter once the accumulator is in, rather than a code change.
 | **M-c** | Year axis + the convergence curve, per-vehicle τ draw held across years | **M1–M4** |
 | **M-d** | Flow the year axis into `ElectricMotorElementMC` | element mass at 2025 unchanged |
 
