@@ -3,7 +3,10 @@
 **Purpose.** Give `PCBAreaMC` and `PCBElementMC` a time axis and couple them to
 the drivers the wiring and sensor models already use.
 
-Written 2026-08-10. **Nothing here is implemented.**
+Written 2026-08-10. **Status 2026-08-11: P-a, P-b', P-c, P-d and P-e are
+implemented and committed; P-b is deferred and P-f, P-g are not started.**
+P-e is committed with a KNOWN FAILING validation -- P1 for AB -- see §2.2j.
+The step table in §6 is the authoritative status.
 
 Companions: `SENSOR_MODEL_DESIGN.md` (the same job, for sensors),
 `STATIC_MODELS_DIAGNOSTIC.md` (what is currently frozen),
