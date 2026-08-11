@@ -1134,7 +1134,7 @@ print(f"Total raw data files: {len(segments) + len(segments) * len(categories)}"
 
 sys.path.insert(0, str(BASE_DIR / "tools"))
 from drivers import (load_architecture_shares, load_presence_per_tier,  # noqa: E402
-                     ARCH_STATES)
+                     shift_shares, ARCH_STATES, TRANSITION_TIMING_SPREAD_Y)
 
 YEARS = np.arange(2020, 2071)
 BASE_YEAR = 2025
@@ -1258,15 +1258,24 @@ def run_year_resolved(segment, ndraws, chunk=CHUNK_DRAWS):
     acc = Accumulator(np.full(ny, float(np.min(probe['total_area']))),
                       np.full(ny, float(np.max(probe['total_area']))), ny)
 
-    cum = np.cumsum(arch_shares[segment], axis=0)          # (3, ny)
     done = 0
     while done < ndraws:
         m = min(chunk, ndraws - done)
         base = run_batch_simulation(stat, segment, m)['total_area']   # (m,)
 
-        # ONE uniform per vehicle, held across every year -> comonotonic
+        # --- TWO draws per vehicle, both held across every year --------------
+        # d  WHEN this manufacturer transitions, in years (the scenario axis).
+        #    Shifting the whole curve keeps the three states coherent; see
+        #    drivers.shift_shares for why perturbing each share independently
+        #    does not (EF zonal "min" 1.000 > "max" 0.791 at 2040).
+        # u  WHICH architecture state, given that scenario.
+        # Held across years so a vehicle is one design on one timeline for its
+        # whole life. Redrawing per year would average the band away.
+        d = np.random.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=m)
+        sh_i = shift_shares(arch_shares[segment], YEARS.astype(float), d)  # (3,m,ny)
         u = np.random.uniform(size=m)
-        state = (u[:, None, None] > cum[None, :, :]).sum(axis=1)      # (m, ny)
+        cum = np.cumsum(sh_i, axis=0)                                 # (3,m,ny)
+        state = (u[None, :, None] > cum).sum(axis=0)                  # (m, ny)
 
         dyn_area = np.zeros((m, ny))
         for szname, key in sizekey.items():
