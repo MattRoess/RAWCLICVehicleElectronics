@@ -976,3 +976,65 @@ driver *as scoped* touches 8.2% of board area (§2.2f) and therefore cannot move
 the total much. The 50.7% controller pool in **P-g** is where a real trend would
 come from, and it is unsourced. Quoting these figures without that framing would
 misrepresent them.
+
+### 2.2m UNCERTAINTY — the wrong way, then the right way (2026-08-11)
+
+User: *"add the uncertainty band."* The first attempt was **written and
+reverted**; recorded because the failure is the informative part.
+
+**WRONG — perturb each share independently.** Read `18_`'s
+`Share_Min`/`Mode`/`Max` per architecture state, sample inside the band, then
+renormalise so the states sum to 1. It looks right and it is not. Measured, EF
+`SDV_Zonal`:
+
+| year | Share_Min | Share_Mode | Share_Max |
+|---|---|---|---|
+| 2025 | 0.025 | 0.137 | 0.189 |
+| **2040** | **1.000** | 0.975 | **0.791** |
+
+**The "minimum" scenario has MORE zonal adoption than the "maximum" one.** After
+renormalising three independently perturbed shares, whichever state was
+perturbed least dominates, and the scenario labels stop meaning anything. The
+band in `18_` is real (max |Max−Min| up to 0.337), so this was not a harmless
+no-op — it was actively wrong. Reverted before commit.
+
+**RIGHT — shift the whole curve in time.** `BevWiring` has done this since it
+was written, and it should have been the first place to look:
+
+    d ~ Normal(0, TRANSITION_TIMING_SPREAD_Y = 5.0)     UNIT: years, per vehicle
+    shares_i = shift_shares(shares, years, d)
+
+One offset per vehicle, held across all years. All three states move together,
+so the mixture stays coherent by construction, and *"this manufacturer is five
+years behind"* is a scenario that means something physically.
+
+Now in `tools/drivers.py` as `shift_shares` — vectorised, and verified against
+`BevWiring._shift_shares` at **3.3e-16**, i.e. the same function. (`BevWiring`
+still carries its own loop version; unifying it is a follow-up, and the numbers
+are already proven identical.)
+
+**Result: P1 and P3 still pass, and the total band does not visibly widen.**
+
+| 90% band (P975−P025) | 2025 | 2070 |
+|---|---|---|
+| AB | 17.2% | 17.1% |
+| CD | 15.3% | 14.2% |
+| EF | 15.1% | 13.8% |
+
+**This was predicted before implementing, and it is not a failure of the
+mechanism.** The 9 dynamic components are **8.2%** of board area (§2.2f), while
+the existing sampling band — triangular board dimensions and uniform counts
+across 101 components — is already **15–17%** wide. A ±0.12 share acting on
+8.2% of area contributes order 0.2–1%, which cannot show against that.
+
+**What this buys and what it does not.** The scenario axis is now correct and
+coherent, so the model *is* producing scenarios rather than a point prediction.
+But the visible uncertainty in PCB area is still dominated by board-size and
+count sampling, not by technology adoption. **Uncertainty large enough to see at
+the total level would have to come from P-g's 50.7% controller pool** — which
+remains unsourced. Quoting the current band as "the uncertainty in PCB area to
+2070" would credit the architecture scenario with spread it did not produce.
+
+**Still collapsed:** `q` remains a point estimate derived from a label quantised
+to four levels (half-step 0.125). Cheap to add on the same per-vehicle pattern;
+not done.

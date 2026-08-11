@@ -178,3 +178,54 @@ def load_presence_per_tier(years):
                 acc = acc + shares[seg][ti] * p
             out[comp][seg] = np.clip(acc, 0.0, 1.0)
     return out
+
+
+# Per-vehicle spread on WHEN a manufacturer transitions. UNIT: years, 1 sigma.
+# Must match Wiring/BevWiring.py's constant of the same name.
+TRANSITION_TIMING_SPREAD_Y = 5.0
+
+
+def shift_shares(shares, years, delta):
+    """Re-read the share curves with each vehicle's own time offset.
+
+    Ported from BevWiring._shift_shares 2026-08-11, vectorised. This is the
+    ONLY coherent way to put uncertainty on a set of shares that must sum to 1.
+
+    WHY NOT PERTURB EACH SHARE INDEPENDENTLY. Taking 18_'s Share_Min for all
+    three architecture states at once and renormalising does NOT give a
+    slow-adoption scenario -- it gives an incoherent mixture. Measured on EF
+    SDV_Zonal at 2040: min 1.000, mode 0.975, max 0.791, i.e. the "minimum"
+    scenario has MORE zonal adoption than the "maximum" one. After
+    renormalisation whichever state was perturbed least dominates and the
+    scenario labels stop meaning anything. That approach was written and
+    reverted; see PCB_MODEL_DESIGN.md 2.2m.
+
+    Shifting the whole curve in TIME keeps the states coherent by construction,
+    and "this manufacturer is five years behind" is a scenario that means
+    something physically.
+
+    Args:
+        shares: (n_states, n_years) marginal shares.
+        years:  (n_years,) UNIT: calendar years. Must be a uniform 1-year grid.
+        delta:  (n_iter,)  per-vehicle offset. UNIT: years. Positive = that
+                manufacturer transitions LATER.
+
+    Returns:
+        (n_states, n_iter, n_years), renormalised to sum to 1 over states.
+        End values are held flat outside the anchor range, as np.interp does.
+    """
+    shares = np.asarray(shares, float)
+    years = np.asarray(years, float)
+    delta = np.atleast_1d(np.asarray(delta, float))
+    n_states, n_years = shares.shape
+
+    x = np.clip(years[None, :] - delta[:, None], years[0], years[-1])
+    pos = x - years[0]                                   # uniform grid, step 1
+    i0 = np.clip(np.floor(pos).astype(int), 0, n_years - 2)
+    frac = pos - i0
+    out = np.empty((n_states, len(delta), n_years))
+    for k in range(n_states):
+        s = shares[k]
+        out[k] = s[i0] * (1.0 - frac) + s[i0 + 1] * frac
+    out = np.clip(out, 0.0, None)
+    return out / np.maximum(out.sum(axis=0, keepdims=True), 1e-12)
