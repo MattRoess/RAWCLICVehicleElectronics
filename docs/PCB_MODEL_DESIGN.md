@@ -810,3 +810,59 @@ name-keyed code must normalise whitespace first.
 
 Option (a) is the smallest change and the only one that cannot resurrect the
 dead-component bug. **Not decided — needs the user.**
+
+### 2.2i OPTION (a) TESTED 2026-08-11 — it does not work, in either form
+
+User chose option (a) on 2026-08-11. Implemented numerically before coding.
+**It fails, and §2.2h's claim that it "survives the observed-zero case" was
+wrong.** Recorded because the failure is informative.
+
+**(a) multiplicative** — `presence = observed x m(state)`. Fails immediately:
+`0 x anything = 0`, so every component whose 2025 factor is 0.00 stays dead
+through 2070. The bug it was chosen to avoid.
+
+**(a) additive, delta solved after clipping to [0,1]** — anchor becomes exact
+(2.2e-16), and the trajectories collapse:
+
+| | delta | 2025 | 2040 | 2070 |
+|---|---|---|---|---|
+| BCM, all segments | +1.00 | 1.000 | 1.000 | **1.000** — never declines |
+| AB zone controller | −2.00 | 0.000 | 0.000 | **0.000** — dead |
+| AB/CD central computer | −2.00 | 0.000 | 0.000 | **0.000** — dead |
+
+When the observed value is 0 and every state target is >= 0, the only offset
+that hits the anchor drives all three states to 0 permanently. Symmetrically,
+observed 1.0 pins everything at 1.0 and the BCM never consolidates away.
+
+**Why no offset scheme can work.** A single scalar per (component, segment)
+cannot both hit a 2025 anchor and permit growth from zero against binary
+targets. This is not a tuning problem: `11_` saying *AB has no zone controllers*
+and `18_` saying *9% of AB is zonal* are inconsistent statements. An anchoring
+scheme cannot reconcile inconsistent inputs, only choose which to honour.
+
+**What does work — convex blend (call it option (d)):**
+
+    presence(comp, seg, y | state k) = (1 - w(y)) * observed(comp,seg) + w(y) * t(comp,k)
+    w(BASE_YEAR) = 0,  rising to 1 by T_FULL
+
+Verified: 2025 anchor **exact to 0.0**, all values in [0,1] by construction (a
+convex combination cannot leave the range, so no clipping and no anchor
+damage), AB zone controller 0.000 -> 0.699 (2040) -> 0.999 (2070), BCM
+1.000 -> 0.001.
+
+**But it has two honest defects:**
+
+1. **`T_FULL` is invented.** Nothing sources it. The project's standing rule is
+   no unsourced parameters, and this would be one.
+2. **It double-counts the timing.** The architecture state shares in `18_`
+   already carry *when* the transition happens; `w(y)` applies a second timing
+   on top. At `T_FULL = 2040` the EF BCM reaches 0.025 by 2040 — too fast to
+   defend.
+
+**Recommendation: option (b), fix the disagreement at source.** Now that the
+inconsistency is measured rather than suspected, patching around it in the model
+is the worse move. Either `11_`'s zonal labels are optimistic (a `Std` zone
+controller in 2025 EF is hard to defend against a 13.7% zonal share) or `18_`'s
+zonal share is too conservative. **One of the two files is wrong and should be
+corrected.** That is a data question with evidence behind it, not a modelling
+trick.
