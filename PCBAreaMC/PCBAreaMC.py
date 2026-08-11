@@ -1178,6 +1178,52 @@ if missing:
     print(f"  WARNING: not found in 11_: {missing}")
 
 
+SCALE_RESOLUTION = 0.15     # V13 tolerance; 01_'s 4-level scale cannot do better
+
+
+def _conditional_q(key, t, segment):
+    """How many of these does a vehicle in a carrying state ACTUALLY have?
+
+    The first P-e attempt used t = (0,1,0) directly, which asserts that EVERY
+    transitional vehicle carries a Powertrain AND a Chassis AND a Body/comfort
+    domain controller. Real transitional cars have one or two. AB was credited
+    with all of them and P1 failed at +4.60% (§2.2j).
+
+    So each component gets a per-segment conditional probability q -- GIVEN the
+    vehicle is in a state that can carry this component, does it have one? --
+    solved so that 2025 reproduces the observed label:
+
+        composed_2025 = q * SUM_k t_k * share_k(2025)  ==  observed
+        q = observed / c25,  clipped to [0, 1]
+
+    q is DERIVED from 01_, not invented, and it is what makes the segments
+    differ: AB gets q ~ 0.37 on the powertrain domain controller and 0 on the
+    chassis one, because AB is heading to zonal without ever fully adopting
+    domain controllers. Leapfrogging is a real pattern, not an artefact.
+
+    THE ONE TRAP. Where the carrying state's own 2025 share is below what the
+    4-level scale can resolve, an observed 0.00 means "not yet", NOT "never".
+    Taking q = 0 there would kill the component in every year to 2070 -- the
+    lidar-dead-forever bug (STATIC_MODELS_DIAGNOSTIC.md), and the same trap that
+    sank both anchoring schemes in §2.2i. AB's zone controller is exactly this:
+    c25 = 0.090, below 0.15, label reads 0.00. So q stays 1 there.
+
+    UNCERTAINTY, and what is still collapsed. q is a POINT estimate derived from
+    a label quantised to four levels, so it carries real uncertainty that is not
+    yet represented. The architecture shares also have a documented +/-0.12 band
+    (18_ Share_Min/Mode/Max, §2.2d) and this model currently reads Share_Mode
+    only. These are scenarios with wide bands, not predictions -- the spread
+    belongs in the output and is the next thing to add here.
+    """
+    c25 = float(np.dot(t, arch_shares[segment][:, I_BASE]))
+    if c25 <= 1e-12:
+        return 1.0
+    obs = float(pcb_dist.loc[pcb_dist['_key'] == key, f'{segment}_factor'].iloc[0])
+    if obs <= 1e-12 and c25 < SCALE_RESOLUTION:
+        return 1.0          # quantisation, not absence -- see above
+    return float(np.clip(obs / c25, 0.0, 1.0))
+
+
 def run_year_resolved(segment, ndraws, chunk=CHUNK_DRAWS):
     """Total PCB area per year. Returns an Accumulator over (draws, n_years).
 
@@ -1193,7 +1239,9 @@ def run_year_resolved(segment, ndraws, chunk=CHUNK_DRAWS):
     pres_state = np.zeros((len(dyn), 3, ny))       # (comp, state, year)
     for i, key in enumerate(dyn['_key']):
         if key in _g4_keys:
-            pres_state[i] = np.array(_g4_keys[key], float)[:, None]
+            t = np.array(_g4_keys[key], float)
+            q = _conditional_q(key, t, segment)
+            pres_state[i] = (t * q)[:, None]
         else:                                      # G5, tier-governed
             p = tier_presence[G5_COMPONENT][segment]
             pres_state[i] = p[None, :]
