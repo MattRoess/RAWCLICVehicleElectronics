@@ -158,7 +158,11 @@ error when it appears.
   comes alive, and the architecture driver applies for free. But `12_` is the
   source that says EF has 6 medium DC motors, which is the figure most in doubt.
 
-**Not decided.**
+~~**Not decided.**~~ **DECIDED — see §6.** Option (C) is **withdrawn**: `12_`
+structurally omits window, mirror and wiper motors, so it cannot be a count
+basis. `05_` is the basis; technology-level pooling is a cross-check on the
+overlapping subset only. §4's options are kept for the reasoning, but §6 is
+what holds.
 
 ---
 
