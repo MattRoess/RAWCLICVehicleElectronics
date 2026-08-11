@@ -169,3 +169,59 @@ error when it appears.
   `PCB_MODEL_DESIGN.md` §2.2h.)
 - No year axis, no driver, no research into the feature-content trend.
 - No view on whether `HIST_BINS = 140` should change — flagged only.
+
+---
+
+## 6. RESOLVED 2026-08-11 — `12_` cannot be the count basis
+
+The AB DC residual of 0.56× (§1a) was the last open question on the count
+source. Chasing it produced a decisive structural answer rather than a number.
+
+**`12_` contains no window-lift, mirror or wiper motors at all:**
+
+| searched | found in `12_` |
+|---|---|
+| window | **absent** |
+| mirror | **absent** |
+| wiper / washer | **absent** |
+| door | only *Power charge-port door controller* |
+
+Those are the archetypal auxiliary motors — a car carries 2–4 window lifts,
+2 mirror adjusters, 1–2 wiper motors.
+
+**Why they are missing, and why it is not a bug in `12_`.** `01_` is an
+**electronics / ECU inventory**, not a motor inventory. `12_` is generated from
+it, so a motor appears only where an ECU happens to be credited with one. A
+window lift has no ECU of its own — it is driven by the door module or the BCM —
+so it is **structurally invisible** to this decomposition. `12_` covers 26 of
+101 components.
+
+That also explains the AB DC composition: `12_`'s AB list is pumps, EPS, blower,
+seat and parking-brake modules — motors attached to *control units* — not the
+body-comfort motors that dominate a real auxiliary motor count.
+
+**Consequence — the two sources are not two estimates of the same quantity.**
+
+| | what it counts |
+|---|---|
+| `05_` `NumberMotors` | a **vehicle-level motor inventory**, curated directly |
+| `12_` | motors **attributable to listed ECUs**, a strict and incomplete subset |
+
+**DECISION: `05_` is the count basis.** Option (C) from §4 — moving motors onto
+the `01_`/`12_` presence mechanism — is **withdrawn**: it would silently drop
+whole classes of auxiliary motor. The technology-level pooling agreed on
+2026-08-11 stands, but as a **cross-check on the overlapping subset only**, not
+as a reconciliation of totals. The 1.06–1.40× stepper agreement and the AB DC
+0.56× gap are now explained: `12_` is a subset, so it *should* disagree, and the
+direction of the AB gap (12_ higher) reflects it counting control-unit motors
+`05_` groups differently rather than any error.
+
+**`12_` should therefore stop being presented as a motor count.** It is a useful
+*ECU-attributed* motor view. Either rename it to say so, or stop generating it
+(§2 item 1 — it is still read by nothing).
+
+**What a year axis still needs.** Unchanged and unsourced: auxiliary motor
+counts are driven by feature content (§3), not by zonal consolidation. `05_`
+carries no year dimension and nothing in the repo implies one. **A sourced
+feature-content trend is required before `ElectricMotorMC` can gain a time
+axis** — the same shape of work as the ADAS adoption report. Not started.
