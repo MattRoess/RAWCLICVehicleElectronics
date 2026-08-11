@@ -1386,3 +1386,129 @@ _w = load_architecture_shares(YEARS)
 dev = max(float(np.abs(arch_shares[s] - _w[s]).max()) for s in segments)
 print(f"    max |PCB shares - drivers.py shares| = {dev:.3e}")
 print("    P3 PASSED -- one source" if dev == 0.0 else "    P3 FAILED")
+
+
+# ============================================================================
+# STEP P-f, 2026-08-11 -- YEAR SCALE FACTORS FOR PCBElementMC
+#
+# PCBElementMC is pure  element mass = area x concentration.  04_ carries no
+# year dimension (§7 open question 4), so composition is year-invariant and the
+# ENTIRE time dependence of element mass is the time dependence of AREA.
+#
+# So PCBElementMC does not need to be rebuilt: it needs a per-year scale on the
+# areas it already bootstraps. This block exports that scale.
+#
+# Measured scope (2026-08-11): the 9 year-varying components sit in only TWO of
+# the six categories -- SSS (4) and VCC (5) -- and carry NO large boards.
+# BMS, ITC, MLIS and PE_HVS are 0.0% year-varying, so their scale is exactly
+# 1.000 in every year, and that is an OUTPUT of this block, not an assumption.
+# ============================================================================
+
+def year_scale_by_category(segment, ndraws=40000, chunk=CHUNK_DRAWS):
+    """mean area(category, size, year) / same at BASE_YEAR.
+
+    Same draw discipline as run_year_resolved -- per-vehicle timing shift,
+    architecture state and label-quantisation draw, each held across years --
+    so the scale is consistent with the year-resolved totals rather than a
+    separately invented curve.
+    """
+    ny = len(YEARS)
+    dyn = pcb_dist[is_dynamic].reset_index(drop=True)
+    nd = len(dyn)
+    cats = sorted(pcb_dist['PCB_Category'].unique())
+    sizes = ['Small', 'Medium', 'Large']
+    sizekey = {'Small': 'small', 'Medium': 'medium', 'Large': 'large'}
+
+    t_mat = np.zeros((nd, 3)); obs_lo = np.zeros(nd); obs_hi = np.ones(nd)
+    obs_vec = np.zeros(nd); is_g4 = np.zeros(nd, dtype=bool); g5_curve = np.zeros(ny)
+    for i, key in enumerate(dyn['_key']):
+        if key in _g4_keys:
+            is_g4[i] = True
+            t_mat[i] = np.array(_g4_keys[key], float)
+            o = float(pcb_dist.loc[pcb_dist['_key'] == key, f'{segment}_factor'].iloc[0])
+            obs_vec[i] = o
+            obs_lo[i], obs_hi[i] = LABEL_BIN[_nearest_level(o)]
+        else:
+            g5_curve = tier_presence[G5_COMPONENT][segment]
+
+    # static area per (cat, size): no year dependence, so one number each
+    stat = pcb_dist[~is_dynamic]
+    sp = pcb_size_params
+    static_area = {}
+    for cat in cats:
+        g = stat[stat['PCB_Category'] == cat]
+        for szn in sizes:
+            k = sizekey[szn]
+            n_mean = (g[f'{segment}_{szn}_min'].to_numpy(float)
+                      + g[f'{segment}_{szn}_max'].to_numpy(float)) / 2.0
+            unit = (sum(sp[k]['length'][x] for x in ('min', 'mode', 'max')) / 3.0
+                    * sum(sp[k]['width'][x] for x in ('min', 'mode', 'max')) / 3.0)
+            static_area[(cat, szn)] = float(n_mean.sum() * unit)
+
+    # dynamic area per (cat, size, year), accumulated as a running mean
+    dyn_sum = {(c, s): np.zeros(ny) for c in cats for s in sizes}
+    dyn_cat = dyn['PCB_Category'].to_numpy()
+    done = 0
+    while done < ndraws:
+        m = min(chunk, ndraws - done)
+        d = np.random.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=m)
+        sh_i = shift_shares(arch_shares[segment], YEARS.astype(float), d)
+        u = np.random.uniform(size=m)
+        state = (u[None, :, None] > np.cumsum(sh_i, axis=0)).sum(axis=0)   # (m,ny)
+        c25_i = np.einsum('cs,sm->mc', t_mat, sh_i[:, :, I_BASE])
+        obs_i = np.random.triangular(np.broadcast_to(obs_lo, (m, nd)),
+                                     np.broadcast_to(obs_vec, (m, nd)),
+                                     np.broadcast_to(obs_hi, (m, nd)))
+        qz = (obs_vec[None, :] <= 1e-12) & (c25_i < SCALE_RESOLUTION)
+        q_i = np.where(c25_i > 1e-12, obs_i / np.maximum(c25_i, 1e-12), 1.0)
+        q_i = np.clip(np.where(qz, 1.0, np.where(is_g4[None, :], q_i, 1.0)), 0.0, 1.0)
+
+        t_sel = np.broadcast_to(t_mat[None, :, :], (m, nd, 3))
+        pres = np.take_along_axis(t_sel, state[:, None, :], axis=2) * q_i[:, :, None]
+        pres = np.where(is_g4[None, :, None], pres, g5_curve[None, None, :])
+
+        for szn in sizes:
+            k = sizekey[szn]
+            lo = dyn[f'{szn}_PCB_min'].to_numpy(float)
+            hi = dyn[f'{szn}_PCB_max'].to_numpy(float)
+            n = np.random.uniform(lo, hi, size=(m, nd))
+            L = np.random.triangular(sp[k]['length']['min'], sp[k]['length']['mode'],
+                                     sp[k]['length']['max'], size=(m, nd))
+            W = np.random.triangular(sp[k]['width']['min'], sp[k]['width']['mode'],
+                                     sp[k]['width']['max'], size=(m, nd))
+            unit = np.where(n > 0, n * L * W, 0.0)
+            contrib = unit[:, :, None] * pres                      # (m, nd, ny)
+            for cat in cats:
+                sel = dyn_cat == cat
+                if sel.any():
+                    dyn_sum[(cat, szn)] += contrib[:, sel, :].sum(axis=(0, 1))
+        done += m
+
+    rows = []
+    for cat in cats:
+        for szn in sizes:
+            tot = static_area[(cat, szn)] + dyn_sum[(cat, szn)] / done
+            base = tot[I_BASE]
+            scale = np.ones(ny) if base <= 1e-9 else tot / base
+            for j, y in enumerate(YEARS):
+                rows.append({'Year': int(y), 'Category': cat,
+                             'Size': szn.lower(), 'Scale': float(scale[j]),
+                             'MeanArea_mm2': float(tot[j])})
+    return pd.DataFrame(rows)
+
+
+print("\n" + "="*70)
+print("P-f -- YEAR SCALE FACTORS FOR PCBElementMC")
+print("="*70)
+for segment in segments:
+    sc = year_scale_by_category(segment)
+    out = SCRIPT_DIR / 'csv_monte_carlo' / f'pcb_year_scale_{segment}.csv'
+    sc.to_csv(out, index=False)
+    piv = sc[sc.Year == 2070].set_index(['Category', 'Size'])['Scale']
+    moved = piv[(piv - 1.0).abs() > 1e-6]
+    print(f"\n  {segment}: scale at 2070, only the combinations that move")
+    for (c, s), v in moved.items():
+        print(f"      {c:8} {s:7} x{v:.3f}")
+    flat = sorted({c for c, _ in piv.index} - {c for c, _ in moved.index})
+    print(f"      unchanged in every year: {', '.join(flat) if flat else '(none)'}")
+    print(f"      -> csv_monte_carlo/{out.name}")

@@ -1100,3 +1100,59 @@ between them.
 **Both collapses from §2.2l are now closed.** What remains true is the framing:
 the total band is still dominated by board-size and count sampling, and
 technology adoption cannot dominate it while the driver reaches 8.2% of area.
+
+### 2.2o P-f DONE 2026-08-11 — year-resolved element mass
+
+`PCBElementMC` is `element mass = area × concentration`, and `04_` carries **no
+year dimension** (§7 open question 4). So concentration is year-invariant and
+the entire time dependence of element mass **is** the time dependence of area.
+
+**The year axis is therefore an exact multiplier, not a re-simulation:**
+
+    mass(element, seg, cat, size, year)
+        = mass(..., BASE_YEAR) × areascale(seg, cat, size, year)
+
+Because the scale is deterministic it applies to **every** statistic — mean,
+std and each percentile — not only the mean. Re-running the Monte Carlo 51
+times would add noise without adding information.
+
+The scale is produced by `PCBAreaMC` from its own per-vehicle draws (timing
+shift, architecture state, label quantisation). Nothing is re-derived in the
+element model, so the two cannot silently disagree about area — that coupling is
+what P-f exists to make explicit.
+
+**Scope, measured rather than assumed.** The 9 year-varying components sit in
+only **two of six categories** — SSS (4) and VCC (5) — and carry **no large
+boards**:
+
+| category | year-varying share of EF area | scale at 2070 |
+|---|---|---|
+| SSS | 22.2% | small ×0.98, **medium ×1.09** |
+| VCC | 23.4% | small ×0.94, **medium ×0.87** |
+| BMS, ITC, MLIS, PE_HVS | **0.0%** | **1.000 in every year** |
+
+The four flat categories are an **output** of the calculation, not an
+assumption. The directions are coherent: SSS medium rises as zone controllers
+and central computers arrive, VCC medium falls as the BCM and domain
+controllers consolidate away.
+
+**Result — total element mass per vehicle, 2025 → 2070:**
+
+| | 2025 | 2070 | |
+|---|---|---|---|
+| AB | 483.16 g | 481.71 g | **−0.30%** |
+| CD | 617.11 g | 608.42 g | **−1.41%** |
+| EF | 715.34 g | 703.33 g | **−1.68%** |
+
+Largest element movements (EF): Ni −2.22%, Sn −2.11%, Fe −2.01%; smallest
+Ag −0.94%. Solder and plating metals move most, which follows from VCC medium
+boards shrinking.
+
+**Outputs:** `csv_results/element_mass_by_year.csv` (27,540 rows) and
+`element_mass_totals_by_year.csv` (1,530 rows).
+
+**The same bounded story as P-e, for the same reason.** Low single-digit
+movement because the driver reaches 8.2% of board area. This is *not* a finding
+that BEV electronics material demand is flat to 2070 — it is the measured reach
+of the architecture driver as currently scoped. **P-g's 50.7% controller pool is
+where a material trend would come from**, and it remains unsourced.
