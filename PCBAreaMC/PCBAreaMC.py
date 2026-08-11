@@ -1180,6 +1180,29 @@ if missing:
 
 SCALE_RESOLUTION = 0.15     # V13 tolerance; 01_'s 4-level scale cannot do better
 
+# What a recorded label actually tells you. 01_'s four levels are NOT evenly
+# spaced -- 1.00 / 0.50 / 0.25 / 0.00 -- so the quantisation bin around each is
+# ASYMMETRIC, bounded by the midpoints to its neighbours. A flat +/-0.125 would
+# be wrong for 0.50 and 1.00. Derived from the scale, not invented:
+#
+#     label 0.00  ->  true value somewhere in [0.000, 0.125]
+#     label 0.25  ->                          [0.125, 0.375]
+#     label 0.50  ->                          [0.375, 0.750]
+#     label 1.00  ->                          [0.750, 1.000]
+#
+# TRIANGULAR within the bin, peaked at the recorded label -- NOT uniform.
+# Uniform was tried first and biases the endpoints: a `Std` label spread evenly
+# over [0.75, 1.00] has an expected value of 0.875, silently marking every
+# standard-fit component down by 12.5% (EF moved -1.67% -> -2.32% on that alone).
+# The label is the curator's best estimate, so it must stay the MODE; the bin
+# only bounds how far the truth can sit from it.
+LABEL_BIN = {1.00: (0.750, 1.000), 0.50: (0.375, 0.750),
+             0.25: (0.125, 0.375), 0.00: (0.000, 0.125)}
+
+
+def _nearest_level(x):
+    return min(LABEL_BIN, key=lambda v: abs(x - v))
+
 
 def _conditional_q(key, t, segment):
     """How many of these does a vehicle in a carrying state ACTUALLY have?
@@ -1235,16 +1258,29 @@ def run_year_resolved(segment, ndraws, chunk=CHUNK_DRAWS):
     dyn = pcb_dist[is_dynamic].reset_index(drop=True)
     ny = len(YEARS)
 
-    # per-year presence for each dynamic component, per architecture state
-    pres_state = np.zeros((len(dyn), 3, ny))       # (comp, state, year)
+    # t(component, state) for the G4 rows, plus the quantisation bin each 2025
+    # label stands for. The G5 row is tier-governed and carries no state
+    # dependence, so it is held separately.
+    nd = len(dyn)
+    t_mat = np.zeros((nd, 3))
+    obs_lo = np.zeros(nd)
+    # Non-G4 rows (the tier-governed G5 component) never use this draw -- q_i is
+    # forced to 1.0 for them below -- but np.random.triangular rejects
+    # left == right, so they get a valid dummy range rather than a zero-width one.
+    obs_hi = np.ones(nd)
+    obs_vec = np.zeros(nd)
+    is_g4 = np.zeros(nd, dtype=bool)
+    g5_curve = np.zeros(ny)
     for i, key in enumerate(dyn['_key']):
         if key in _g4_keys:
-            t = np.array(_g4_keys[key], float)
-            q = _conditional_q(key, t, segment)
-            pres_state[i] = (t * q)[:, None]
-        else:                                      # G5, tier-governed
-            p = tier_presence[G5_COMPONENT][segment]
-            pres_state[i] = p[None, :]
+            is_g4[i] = True
+            t_mat[i] = np.array(_g4_keys[key], float)
+            o = float(pcb_dist.loc[pcb_dist['_key'] == key,
+                                   f'{segment}_factor'].iloc[0])
+            obs_vec[i] = o
+            obs_lo[i], obs_hi[i] = LABEL_BIN[_nearest_level(o)]
+        else:
+            g5_curve = tier_presence[G5_COMPONENT][segment]
 
     # RAW per-component board counts -- the {SEG}_ columns are already
     # multiplied by the static factor, which is exactly what we are replacing.
@@ -1277,6 +1313,25 @@ def run_year_resolved(segment, ndraws, chunk=CHUNK_DRAWS):
         cum = np.cumsum(sh_i, axis=0)                                 # (3,m,ny)
         state = (u[None, :, None] > cum).sum(axis=0)                  # (m, ny)
 
+        # --- q, now a BAND rather than a point estimate -----------------------
+        # Third draw per vehicle, held across years: where inside its
+        # quantisation bin does this component's 2025 label actually sit?
+        # q is calibrated against THAT vehicle's own shifted scenario, so every
+        # vehicle reproduces its own 2025 observation -- rather than only the
+        # ensemble mean reproducing the mode.
+        c25_i = np.einsum('cs,sm->mc', t_mat, sh_i[:, :, I_BASE])     # (m,comp)
+        obs_i = np.random.triangular(
+            np.broadcast_to(obs_lo, (m, nd)),
+            np.broadcast_to(obs_vec, (m, nd)),
+            np.broadcast_to(obs_hi, (m, nd)))
+        # An observed 0.00 where the carrying state's own share is below what
+        # the scale can resolve means "not yet", never "never" -- see
+        # _conditional_q. Without this the component is dead through 2070.
+        quantised_zero = (obs_vec[None, :] <= 1e-12) & (c25_i < SCALE_RESOLUTION)
+        q_i = np.where(c25_i > 1e-12, obs_i / np.maximum(c25_i, 1e-12), 1.0)
+        q_i = np.where(quantised_zero, 1.0, q_i)
+        q_i = np.clip(np.where(is_g4[None, :], q_i, 1.0), 0.0, 1.0)   # (m,comp)
+
         dyn_area = np.zeros((m, ny))
         for szname, key in sizekey.items():
             lo, hi = raw[szname]
@@ -1287,8 +1342,13 @@ def run_year_resolved(segment, ndraws, chunk=CHUNK_DRAWS):
                                      sp[key]['width']['max'], size=(m, len(dyn)))
             unit = np.where(n > 0, n * L * W, 0.0)                    # (m, comp)
             # presence of each component for the state this vehicle drew
-            pres = np.take_along_axis(pres_state[None, :, :, :],
-                                      state[:, None, None, :], axis=2)[:, :, 0, :]
+            # presence in the state this vehicle drew:
+            #   G4 -> t[state] * q   (q is this vehicle's own draw)
+            #   G5 -> the tier curve, no architecture dependence
+            t_sel = np.broadcast_to(t_mat[None, :, :], (m, nd, 3))
+            pres = np.take_along_axis(t_sel, state[:, None, :], axis=2)
+            pres = pres * q_i[:, :, None]
+            pres = np.where(is_g4[None, :, None], pres, g5_curve[None, None, :])
             dyn_area += np.einsum('mc,mcy->my', unit, pres)
         acc.add(base[:, None] + dyn_area)
         done += m

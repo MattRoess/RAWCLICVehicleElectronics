@@ -1038,3 +1038,65 @@ remains unsourced. Quoting the current band as "the uncertainty in PCB area to
 **Still collapsed:** `q` remains a point estimate derived from a label quantised
 to four levels (half-step 0.125). Cheap to add on the same per-vehicle pattern;
 not done.
+
+### 2.2n THE q BAND — 2026-08-11
+
+The second collapse from §2.2l, now carried. `q` was a point estimate derived
+from a label on a four-level scale; it is now drawn per vehicle.
+
+**The bins are asymmetric, because the scale is.** `01_`'s levels are
+1.00 / 0.50 / 0.25 / 0.00 — *not* evenly spaced — so each label stands for a
+different width of truth, bounded by the midpoints to its neighbours:
+
+| label | true value lies in |
+|---|---|
+| 1.00 `Std` | [0.750, 1.000] |
+| 0.50 `Opt` | [0.375, 0.750] |
+| 0.25 `Rare` | [0.125, 0.375] |
+| 0.00 `–` | [0.000, 0.125] |
+
+A flat ±0.125 would have been wrong for `Opt` and `Std`. Derived from the scale,
+not invented.
+
+**Uniform was tried first and was wrong.** Spreading a `Std` label evenly over
+[0.75, 1.00] gives it an expected value of **0.875** — silently marking every
+standard-fit component down 12.5%. EF moved −1.67% → −2.32% on that alone.
+**Triangular peaked at the recorded label** is right: the curator's label is the
+best estimate and must stay the mode; the bin only bounds how far truth can sit
+from it.
+
+A residual downward pull on `Std` remains by construction —
+triangular(0.75, 1.00, 1.00) has mean 0.917 — and that is correct rather than a
+defect: on a four-level scale `Std` genuinely cannot be distinguished from 90%
+fitment.
+
+**Three draws per vehicle now, every one held across all years:**
+
+| | |
+|---|---|
+| `d` | when this manufacturer transitions (years, §2.2m) |
+| `u` | which architecture state, given that timeline |
+| `v` | where inside its quantisation bin each label actually sits |
+
+`q` is calibrated against **that vehicle's own** shifted scenario, so every
+vehicle reproduces its own 2025 observation rather than only the ensemble mean
+reproducing the mode.
+
+**Result — this one is visible, unlike the timing scenario:**
+
+| 90% band | 2025 | 2070 |
+|---|---|---|
+| AB | 17.2% → **17.7%** | 17.1% → **18.0%** |
+| CD | 15.3% → **16.3%** | 14.2% → **15.0%** |
+| EF | 15.1% → **15.4%** | 13.8% → **13.7%** |
+
+**AB now widens with time** (17.7% → 18.0%) instead of staying flat, which is
+what carrying uncertainty forward is supposed to look like. The label
+quantisation contributes more spread than the ±0.12 adoption band does —
+unsurprising once §2.2f is taken seriously: presence uncertainty acts on the
+whole of each dynamic component, while the adoption band only moves the mixture
+between them.
+
+**Both collapses from §2.2l are now closed.** What remains true is the framing:
+the total band is still dominated by board-size and count sampling, and
+technology adoption cannot dominate it while the driver reaches 8.2% of area.
