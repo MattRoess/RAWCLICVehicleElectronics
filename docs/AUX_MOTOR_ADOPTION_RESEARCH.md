@@ -151,3 +151,95 @@ next step is targeted work on the ceiling and the counter-trend, not code.
 top-down** market reports. Growth ratios are informative; absolute values are
 weak. The `05_` cross-check in §1 is the one place an absolute figure was used,
 and it was used only to corroborate a number the project already had.
+
+---
+
+## 7. SECOND PASS 2026-08-11 — the ceiling and the counter-trend
+
+Two user judgements set the direction here, and the evidence supports both.
+
+> *"I think it is not so dynamic."*
+> *"It will be controlled by costs for AB and CD."*
+
+### 7.1 The 4.7%/yr headline must NOT be carried forward
+
+**Power windows are the test case, because they are a mature motor-bearing
+feature with published fitment data:**
+
+| | | tag |
+|---|---|---|
+| Front-door power windows, EU (Spain) | **>95% of new cars — saturated** | FACT |
+| Powered windows per car | **3.2 (2018) → 3.8 (2025)** | FACT |
+| implied rate | **~+2.5%/yr, and decelerating** | DERIVED |
+
+**That is roughly half the 4.7%/yr headline** — and it is the *right* half to
+believe for the future. The 2010→2025 figure covers a wave of feature
+introduction that is now largely complete: growth has moved from *adding the
+feature* (front windows, 0→95%) to *extending it* (rear and quarter windows),
+which is a smaller and self-limiting increment.
+
+**This corroborates the user's "not so dynamic" judgement with numbers.**
+DERIVED. A model built on 4.7%/yr would overstate 2070 motor content
+substantially; ~2.5%/yr decaying toward zero is the defensible shape.
+
+### 7.2 The ceiling is a cost ceiling for AB and CD, not a technical one
+
+**User's judgement, and it resolves what the market reports could not.** No
+source gives a technical maximum motor count, and looking for one was the wrong
+search: **nothing physically prevents an AB car from carrying EF's motor
+content — price does.**
+
+Supporting evidence:
+
+| | | tag |
+|---|---|---|
+| Smart motors (integrated electronics, anti-pinch) | **25–40% price premium** over conventional geared assemblies | FACT |
+| their share of OEM-sourced motors by value, 2026 | 15–20% | FACT |
+| Power liftgate, compact/subcompact | ~20% (2025) → >40% (2030) | FACT |
+| Power liftgate, premium | already >62% hands-free capable | FACT |
+
+**The compact curve is a cost-down curve, not a capability curve.** Premium
+adopts at launch; AB and CD adopt as unit cost falls. So the ceiling for AB/CD
+is set by **content cost per vehicle**, and EF functions as the practical upper
+bound AB/CD converge toward — slowly, and never fully within the model horizon.
+
+**This is a better-founded structure than an invented numeric ceiling**, and it
+uses a quantity the model already has: EF's own motor count.
+
+### 7.3 The integration counter-trend is real but weakly evidenced
+
+Searching for it returned **patents, not fitment data** — multifunction and
+multi-input actuators (US 6,075,298; 6,107,759; 12,054,021), one motor driving
+locks plus windows plus wipers. The stated motivation is consistent and
+credible: *"the traditional need for such a multiplicity of electromagnetic
+devices has increased vehicle weight and cost while proving difficult to package
+in small spaces."* FACT (as a statement of intent).
+
+**But patents show intent, not deployment**, and this idea recurs across
+decades. If it were materially reducing motor counts it would appear in fitment
+statistics, and it does not — the measured direction is still upward
+(3.2→3.8 windows/car). **ASSUMPTION:** integration currently offsets rather than
+reverses growth, and belongs in the model as a downward pressure on the *rate*,
+not as a decline.
+
+### 7.4 Where this leaves the driver
+
+**Now defensible, without inventing a parameter:**
+
+| | |
+|---|---|
+| near-term rate | **~2.5%/yr**, from saturating-feature evidence, not 4.7% |
+| shape | decelerating — feature *introduction* is giving way to feature *extension* |
+| AB / CD ceiling | **cost-driven convergence toward EF content**, EF as the practical bound |
+| EF | near-saturated already; slowest growth |
+| integration | a brake on the rate, not a reversal |
+
+**Still missing:** anything past 2035 (35 of 50 modelled years remain
+extrapolation), the stepper/DC mix shift, and a quantified cost-elasticity for
+the AB/CD convergence. The last of these is now the binding gap — the structure
+is right, the speed is not yet pinned.
+
+**Assessment:** this is close to buildable. The remaining choice — how fast
+AB/CD converge on EF — is a scenario parameter with a defensible band rather
+than a fabricated point value, which is exactly what the project's
+`Share_Min/Mode/Max` convention exists to carry.
