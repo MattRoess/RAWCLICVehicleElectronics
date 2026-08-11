@@ -866,3 +866,54 @@ controller in 2025 EF is hard to defend against a 13.7% zonal share) or `18_`'s
 zonal share is too conservative. **One of the two files is wrong and should be
 corrected.** That is a data question with evidence behind it, not a modelling
 trick.
+
+### 2.2j P-e IMPLEMENTED 2026-08-11 — machinery green, mapping wrong, P1 fails for AB
+
+**Committed deliberately with a failing validation.** The code is sound and the
+failure is a modelling error in the presence table, recorded here so it is not
+mistaken for a plumbing bug.
+
+**What works:**
+
+| | |
+|---|---|
+| year axis | 2020–2070 in `PCBAreaMC`, via the P-d accumulator's series axis — the class did not change |
+| architecture states | discrete, **one uniform per vehicle held across all 51 years** (§2.2d) |
+| presence rule | V13 composed-authoritative, as `SensorNumbersMC` has done since 2026-08-07 |
+| **P3** — same architecture shares as `BevWiring` | **PASS, `0.000e+00`** |
+| component lookup | 9 of 9 dynamic components found through non-breaking-space normalisation |
+
+**What fails — P1, AB only:**
+
+| | static 2025 | year-axis 2025 | |
+|---|---|---|---|
+| AB | 14,383.4 | 15,045.3 | **+4.60%** — outside ±3% |
+| CD | 18,822.5 | 19,081.6 | +1.38% |
+| EF | 22,096.1 | 21,821.1 | −1.24% |
+
+**Cause: the `G4_PRESENCE` table is wrong.** Each of the four domain
+controllers carries `t = (0, 1, 0)`, which asserts that **every** transitional
+vehicle has a Powertrain **and** a Chassis **and** a Body/comfort domain
+controller — all three at AB's 68.3% transitional share:
+
+| AB 2025 | `01_` | composed |
+|---|---|---|
+| Chassis domain controller | **0.00** | 0.683 |
+| ADAS domain controller | **0.00** | 0.773 |
+| Powertrain domain controller | 0.25 | 0.683 |
+| Body/comfort domain controller | 0.25 | 0.683 |
+
+A real transitional car has one or two domain controllers, not the full set.
+`01_` saying AB has no chassis or ADAS domain controller is **correct**, and the
+mapping overrode it. The error scales with how many domain controllers a segment
+does *not* have, which is why AB fails while CD and EF pass.
+
+**Fix required:** presence-within-state must vary by segment —
+`t(component, state, segment)` rather than `t(component, state)`, expressing how
+many domain controllers a transitional car *in that segment* actually carries.
+**A modelling judgement; not yet made.**
+
+**Do not read the trend yet.** All three segments currently move **−2.0%**
+from 2025 to 2070. That is consistent with G4+G5 reaching only 8.2% (four
+components decline, two rise), but three different base areas landing on the
+same figure deserves confirmation once the mapping is corrected.

@@ -1107,3 +1107,165 @@ print(f"    - Category raw distributions: {len(segments) * len(categories)} file
 print(f"  distribution_index.csv (root)")
 print(f"\nTotal histogram files: {len(segments) * 4 + len(segments) * len(categories) * 4}")
 print(f"Total raw data files: {len(segments) + len(segments) * len(categories)}")
+
+# ============================================================================
+# STEP P-e, 2026-08-11 -- THE YEAR AXIS  (G4 architecture + G5 ADAS tier)
+#
+# Everything above this line is the 2025 snapshot and is unchanged. This block
+# adds 2020-2070.
+#
+# HOW PRESENCE IS DECIDED -- the V13 rule, copied from SensorNumbersMC.
+#   The COMPOSED value is authoritative. 11_'s Std/Opt/Rare factor is a 2025
+#   observation on a 4-level ordinal scale (1.00/0.50/0.25/0.00) which cannot
+#   express a value like 0.137, so it is a CROSS-CHECK, not an input, for the
+#   components a driver governs.
+#
+#   Three anchoring schemes were tried first and all failed (PCB_MODEL_DESIGN.md
+#   2.2h/2.2i): multiplicative kills any component whose 2025 factor is 0.00,
+#   and additive-with-clipping either freezes a component at 1.0 or kills it.
+#   No scalar offset can reconcile "AB has no zone controllers" (11_) with
+#   "9% of AB is zonal" (18_). Those inputs disagreed; two cells of 01_ were
+#   corrected instead (commit fb726ba) and the rest is quantisation.
+#
+# DISCRETE STATES. One architecture state per vehicle, drawn once and held
+# across all years. A vehicle is one design, never a blend -- share-weighting
+# collapses a bimodal mixture into its mean and destroys the band (2.2d).
+# ============================================================================
+
+sys.path.insert(0, str(BASE_DIR / "tools"))
+from drivers import (load_architecture_shares, load_presence_per_tier,  # noqa: E402
+                     ARCH_STATES)
+
+YEARS = np.arange(2020, 2071)
+BASE_YEAR = 2025
+I_BASE = int(np.where(YEARS == BASE_YEAR)[0][0])
+
+# presence(component | architecture state), states in ARCH_STATES order.
+# Judgement cells are marked; see PCB_MODEL_DESIGN.md 2.2g.
+G4_PRESENCE = {
+    'Body Control Module (BCM)':           (1.0, 1.0, 0.0),
+    'Powertrain domain controller':        (0.0, 1.0, 0.0),
+    'Chassis domain controller':           (0.0, 1.0, 0.0),
+    'Body/comfort domain controller':      (0.0, 1.0, 0.0),
+    'Zone controller (front/rear/etc.)':   (0.0, 0.0, 1.0),
+    'Automated driving central computer':  (0.0, 0.0, 1.0),
+    'ABS/ESC control module (EBCM)':       (1.0, 1.0, 1.0),   # JUDGEMENT: braking
+    'ADAS domain controller / fusion ECU': (0.0, 1.0, 1.0),   # JUDGEMENT: see 2.2g
+}
+G5_COMPONENT = 'ADAS camera ECU (basic)'
+
+
+def _norm_name(s):
+    """11_ component names contain NON-BREAKING SPACES (the BCM is
+    'Body\xa0Control\xa0Module\xa0(BCM)'). Exact matching silently returns
+    nothing, so every name lookup must normalise first."""
+    return " ".join(str(s).replace("\xa0", " ").split())
+
+
+pcb_dist['_key'] = pcb_dist['Component'].map(_norm_name)
+arch_shares = load_architecture_shares(YEARS)
+tier_presence = load_presence_per_tier(YEARS)
+
+_g4_keys = {_norm_name(k): v for k, v in G4_PRESENCE.items()}
+is_dynamic = pcb_dist['_key'].isin(set(_g4_keys) | {_norm_name(G5_COMPONENT)})
+print("\n" + "="*70)
+print("P-e -- YEAR-RESOLVED PCB AREA, 2020-2070")
+print("="*70)
+print(f"  dynamic components: {int(is_dynamic.sum())} "
+      f"({int(is_dynamic.sum())} of {len(pcb_dist)}); the rest hold their 2025 presence")
+missing = [k for k in _g4_keys if k not in set(pcb_dist['_key'])]
+if missing:
+    print(f"  WARNING: not found in 11_: {missing}")
+
+
+def run_year_resolved(segment, ndraws, chunk=CHUNK_DRAWS):
+    """Total PCB area per year. Returns an Accumulator over (draws, n_years).
+
+    Static components are drawn once and broadcast across years -- their
+    presence does not change, so re-drawing them per year would add noise
+    without adding signal. Only the dynamic components carry a year index.
+    """
+    stat = pcb_dist[~is_dynamic]
+    dyn = pcb_dist[is_dynamic].reset_index(drop=True)
+    ny = len(YEARS)
+
+    # per-year presence for each dynamic component, per architecture state
+    pres_state = np.zeros((len(dyn), 3, ny))       # (comp, state, year)
+    for i, key in enumerate(dyn['_key']):
+        if key in _g4_keys:
+            pres_state[i] = np.array(_g4_keys[key], float)[:, None]
+        else:                                      # G5, tier-governed
+            p = tier_presence[G5_COMPONENT][segment]
+            pres_state[i] = p[None, :]
+
+    # RAW per-component board counts -- the {SEG}_ columns are already
+    # multiplied by the static factor, which is exactly what we are replacing.
+    raw = {sz: (dyn[f'{sz}_PCB_min'].to_numpy(float),
+                dyn[f'{sz}_PCB_max'].to_numpy(float))
+           for sz in ['Small', 'Medium', 'Large']}
+    sp = pcb_size_params
+    sizekey = {'Small': 'small', 'Medium': 'medium', 'Large': 'large'}
+
+    probe = run_batch_simulation(pcb_dist, segment, min(PILOT_DRAWS, ndraws))
+    acc = Accumulator(np.full(ny, float(np.min(probe['total_area']))),
+                      np.full(ny, float(np.max(probe['total_area']))), ny)
+
+    cum = np.cumsum(arch_shares[segment], axis=0)          # (3, ny)
+    done = 0
+    while done < ndraws:
+        m = min(chunk, ndraws - done)
+        base = run_batch_simulation(stat, segment, m)['total_area']   # (m,)
+
+        # ONE uniform per vehicle, held across every year -> comonotonic
+        u = np.random.uniform(size=m)
+        state = (u[:, None, None] > cum[None, :, :]).sum(axis=1)      # (m, ny)
+
+        dyn_area = np.zeros((m, ny))
+        for szname, key in sizekey.items():
+            lo, hi = raw[szname]
+            n = np.random.uniform(lo, hi, size=(m, len(dyn)))         # (m, comp)
+            L = np.random.triangular(sp[key]['length']['min'], sp[key]['length']['mode'],
+                                     sp[key]['length']['max'], size=(m, len(dyn)))
+            W = np.random.triangular(sp[key]['width']['min'], sp[key]['width']['mode'],
+                                     sp[key]['width']['max'], size=(m, len(dyn)))
+            unit = np.where(n > 0, n * L * W, 0.0)                    # (m, comp)
+            # presence of each component for the state this vehicle drew
+            pres = np.take_along_axis(pres_state[None, :, :, :],
+                                      state[:, None, None, :], axis=2)[:, :, 0, :]
+            dyn_area += np.einsum('mc,mcy->my', unit, pres)
+        acc.add(base[:, None] + dyn_area)
+        done += m
+    return acc
+
+
+year_acc = {}
+for segment in segments:
+    year_acc[segment] = run_year_resolved(segment, ndraws)
+    a = year_acc[segment]
+    print(f"\n  {segment}:  2025 {a.mean[I_BASE]:8.0f}   2040 {a.mean[list(YEARS).index(2040)]:8.0f}"
+          f"   2070 {a.mean[-1]:8.0f} mm^2   ({a.mean[-1]/a.mean[I_BASE]-1:+.1%} 2025->2070)")
+    rows = pd.DataFrame({
+        'Year': YEARS, 'Mean': a.mean, 'Std': a.std,
+        'P025': a.percentile(2.5), 'P50': a.percentile(50), 'P975': a.percentile(97.5)})
+    rows.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / f'pcb_year_resolved_{segment}.csv', index=False)
+    print(f"      -> csv_monte_carlo/pcb_year_resolved_{segment}.csv")
+
+# ---- P1: does 2025 still reproduce the static snapshot? (tolerance 3%)
+print("\n  P1 -- year-resolved 2025 vs the static snapshot above")
+p1_fail = []
+for segment in segments:
+    stat_mean = float(all_stats[segment]['total_area']['mean'])
+    yr_mean = float(year_acc[segment].mean[I_BASE])
+    d = (yr_mean - stat_mean) / stat_mean
+    if abs(d) > 0.03:
+        p1_fail.append(segment)
+    print(f"    {segment}: static {stat_mean:9.1f}   year-axis {yr_mean:9.1f}   {d:+7.2%}"
+          f"{'  <-- OUTSIDE 3%' if abs(d) > 0.03 else ''}")
+print("    P1 PASSED" if not p1_fail else f"    P1 FAILED for {p1_fail}")
+
+# ---- P3: the PCB model must draw the SAME architecture shares as the wiring model
+print("\n  P3 -- architecture driver shared with BevWiring")
+_w = load_architecture_shares(YEARS)
+dev = max(float(np.abs(arch_shares[s] - _w[s]).max()) for s in segments)
+print(f"    max |PCB shares - drivers.py shares| = {dev:.3e}")
+print("    P3 PASSED -- one source" if dev == 0.0 else "    P3 FAILED")
