@@ -870,7 +870,7 @@ zonal share is too conservative. **One of the two files is wrong and should be
 corrected.** That is a data question with evidence behind it, not a modelling
 trick.
 
-### 2.2j P-e IMPLEMENTED 2026-08-11 — machinery green, mapping wrong, P1 fails for AB
+### 2.2j P-e IMPLEMENTED 2026-08-11 — first attempt, mapping wrong (FIXED in §2.2k)
 
 **Committed deliberately with a failing validation.** The code is sound and the
 failure is a modelling error in the presence table, recorded here so it is not
@@ -920,3 +920,59 @@ many domain controllers a transitional car *in that segment* actually carries.
 from 2025 to 2070. That is consistent with G4+G5 reaching only 8.2% (four
 components decline, two rise), but three different base areas landing on the
 same figure deserves confirmation once the mapping is corrected.
+
+
+### 2.2k P-e FIXED 2026-08-11 — conditional presence q, P1 passes
+
+The §2.2j failure was the mapping asserting that **every** transitional vehicle
+carries all three domain controllers. Replaced by a per-segment **conditional
+probability**: *given* a vehicle is in a state that can carry this component,
+does it actually have one?
+
+    composed_2025 = q * SUM_k t_k * share_k(2025)  ==  observed
+    q = observed / c25,  clipped to [0, 1]
+
+**q is derived from `01_`, not invented.** It is what makes the segments differ.
+
+**The trap, and the guard.** Where the carrying state's own 2025 share is below
+what the 4-level scale can resolve (0.15), an observed `0.00` means *not yet*,
+not *never*. Taking q = 0 there kills the component through 2070 — the
+lidar-dead-forever bug, and the same trap that sank both schemes in §2.2i. AB's
+zone controller is exactly this case (c25 = 0.090, label reads 0.00), so q stays
+1 and it grows.
+
+**Result — P1 passes, and the segments now separate:**
+
+| | 2025 vs static | 2025 → 2070 |
+|---|---|---|
+| AB | **+0.17%** | **+0.4%** |
+| CD | **−0.27%** | −1.1% |
+| EF | **−1.24%** | −2.0% |
+
+P3 still `0.000e+00`. The identical −2.0% across all three segments in §2.2j is
+gone. EF consolidates most because it *has* domain controllers to lose; AB
+barely moves because it never adopted them and goes conventional → zonal
+directly. **Leapfrogging is an output here, not an input.**
+
+### 2.2l UNCERTAINTY STILL COLLAPSED — the next step, and the honest caveat
+
+**User, 2026-08-11: *"predictions are not science, but different types of
+scenarios, which have an uncertainty."*** Two collapses are live in P-e today:
+
+1. **The architecture share band is discarded.** `18_` carries
+   `Share_Min`/`Mode`/`Max`, a documented **±0.12** on the share (§2.2d), and
+   `PCBAreaMC` reads `Share_Mode` only. `drivers.load_architecture_shares`
+   already takes a `band` argument, so nothing new is needed to fix this.
+2. **`q` is a point estimate** derived from a label quantised to four levels.
+   An observed 0.25 could defensibly be 0.20 or 0.30, and that spread is not
+   represented.
+
+**Neither needs new research.** Until both are carried, the year-resolved output
+is a single line presented where a band belongs.
+
+**How to read the current numbers.** AB +0.4% / CD −1.1% / EF −2.0% to 2070 is
+**not** a forecast that PCB area barely changes. It says the architecture
+driver *as scoped* touches 8.2% of board area (§2.2f) and therefore cannot move
+the total much. The 50.7% controller pool in **P-g** is where a real trend would
+come from, and it is unsourced. Quoting these figures without that framing would
+misrepresent them.
