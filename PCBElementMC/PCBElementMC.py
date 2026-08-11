@@ -914,3 +914,97 @@ for folder_name, folder_path in OUTPUT_FOLDERS.items():
 print("\n" + "="*80)
 print("DONE!")
 print("="*80)
+
+
+# ============================================================================
+# STEP P-f, 2026-08-11 -- YEAR-RESOLVED ELEMENT MASS, 2020-2070
+#
+# This model is  element mass = area x concentration.  04_ carries NO year
+# dimension (PCB_MODEL_DESIGN.md §7 open question 4), so concentration is
+# year-invariant and the entire time dependence of element mass is the time
+# dependence of AREA.
+#
+# That makes the year axis an exact multiplier rather than a re-simulation:
+#
+#     mass(element, seg, cat, size, year)
+#         = mass(..., BASE_YEAR) * areascale(seg, cat, size, year)
+#
+# and because the scale is deterministic, it applies to EVERY statistic --
+# mean, std, and every percentile -- not just the mean. Re-running the Monte
+# Carlo per year would add noise without adding information.
+#
+# The scale comes from PCBAreaMC (P-e), which draws the architecture timing,
+# state and label-quantisation per vehicle. Nothing is re-derived here: if the
+# two models disagreed about area they would disagree about mass, which is the
+# coupling P-f exists to make explicit.
+#
+# SCOPE, measured not assumed: only SSS and VCC contain year-varying
+# components, and none of them carries a large board. The other four categories
+# come out at scale 1.000 in every year.
+# ============================================================================
+
+SCALE_DIR = BASE_DIR / "PCBAreaMC" / "csv_monte_carlo"
+_scale_files = {s: SCALE_DIR / f'pcb_year_scale_{s}.csv' for s in SEGMENTS}
+
+print("\n" + "="*80)
+print("P-f -- YEAR-RESOLVED ELEMENT MASS")
+print("="*80)
+
+_missing = [str(p) for p in _scale_files.values() if not p.exists()]
+if _missing:
+    print("  SKIPPED -- run PCBAreaMC first to generate the year scale factors:")
+    for p in _missing:
+        print(f"    missing {p}")
+else:
+    scale_long = []
+    for seg, path in _scale_files.items():
+        df = pd.read_csv(path)
+        df['Segment'] = seg
+        scale_long.append(df)
+    scale_df = pd.concat(scale_long, ignore_index=True)
+
+    # Scaling is linear, so every reported statistic scales identically.
+    STAT_COLS = ['Mean_g', 'Mode_g', 'Median_g', 'Std_g', 'Min_g',
+                 'P025_g', 'P25_g', 'P75_g', 'P975_g', 'Max_g']
+
+    base = summary_df.copy()
+    base['Size'] = base['Size'].str.lower()
+    merged = base.merge(
+        scale_df[['Segment', 'Category', 'Size', 'Year', 'Scale']],
+        on=['Segment', 'Category', 'Size'], how='inner')
+    for c in STAT_COLS:
+        if c in merged.columns:
+            merged[c] = merged[c] * merged['Scale']
+
+    year_cols = (['Year', 'Segment', 'Category', 'Size', 'Element']
+                 + [c for c in STAT_COLS if c in merged.columns] + ['Scale'])
+    year_df = merged[year_cols].sort_values(['Year', 'Segment', 'Category',
+                                             'Size', 'Element'])
+    out = OUTPUT_FOLDERS['csv_results'] / 'element_mass_by_year.csv'
+    year_df.to_csv(out, index=False)
+    print(f"  ✓ {len(year_df):,} rows -> csv_results/{out.name}")
+
+    # Per-segment element totals across all categories and sizes
+    tot = (year_df.groupby(['Year', 'Segment', 'Element'])['Mean_g']
+           .sum().reset_index())
+    out2 = OUTPUT_FOLDERS['csv_results'] / 'element_mass_totals_by_year.csv'
+    tot.to_csv(out2, index=False)
+    print(f"  ✓ {len(tot):,} rows -> csv_results/{out2.name}")
+
+    print("\n  Total element mass per vehicle, 2025 -> 2070:")
+    for seg in SEGMENTS:
+        t = tot[tot.Segment == seg].groupby('Year')['Mean_g'].sum()
+        if 2025 in t.index and 2070 in t.index and t.loc[2025] > 0:
+            print(f"    {seg}: {t.loc[2025]:8.2f} g -> {t.loc[2070]:8.2f} g "
+                  f"({t.loc[2070] / t.loc[2025] - 1:+.2%})")
+
+    # The elements that actually move, ranked -- everything else is carried by
+    # categories whose scale is 1.000, so it is flat by construction.
+    print("\n  Elements moving most by 2070 (EF):")
+    ef = tot[tot.Segment == 'EF']
+    piv = ef.pivot_table(index='Element', columns='Year', values='Mean_g')
+    if 2025 in piv.columns and 2070 in piv.columns:
+        piv = piv[piv[2025] > 1e-9]
+        ch = ((piv[2070] / piv[2025] - 1.0) * 100).sort_values()
+        for el, v in list(ch.items())[:3] + list(ch.items())[-3:]:
+            print(f"    {el:22} {v:+6.2f}%")
