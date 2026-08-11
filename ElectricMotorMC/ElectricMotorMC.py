@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -150,6 +151,29 @@ def kde_mode(x: np.ndarray, grid_points: int = 1024) -> float:
     kde  = gaussian_kde(x)
     grid = np.linspace(x.min(), x.max(), grid_points)
     return float(grid[np.argmax(kde(grid))])
+
+
+def save_samples_npy(path_stem: Path, columns: dict) -> None:
+    """Write raw draws as float32 .npy plus a .json sidecar naming the columns.
+
+    Replaces a CSV per file. Step M-b3, 2026-08-11, same decision the user made
+    for PCBAreaMC on 2026-08-10: these are regenerable Monte Carlo draws, and
+    CSV is ~4.6x larger, slower to load and lossy on float round-trip.
+
+    ElectricMotorMC was writing 658 MB of them -- materials_samples_csv 527 MB
+    plus samples_csv 131 MB -- MORE than the 522 MB removed from PCBAreaMC.
+
+        np.load(path, mmap_mode="r")    -> (n_samples, n_cols), order in .json
+
+    Nothing reads these files; they exist for downstream and exploratory work,
+    which is exactly why binary suits them better than text.
+    """
+    names = list(columns)
+    arr = np.column_stack([np.asarray(columns[k], dtype=np.float32) for k in names])
+    np.save(path_stem.with_suffix(".npy"), arr)
+    path_stem.with_suffix(".json").write_text(json.dumps(
+        {"columns": names, "n_samples": int(arr.shape[0]), "dtype": "float32",
+         "note": 'load with numpy.load(path, mmap_mode="r")'}, indent=2))
 
 
 def export_histogram_csv(data: np.ndarray, path: Path, bins: int = HIST_BINS) -> None:
@@ -848,14 +872,11 @@ def _export_material_outputs(
 ) -> None:
     total_mass_kg = material_mass_kg.sum(axis=1)
 
-    mat_df = pd.DataFrame({"total_mass_kg": total_mass_kg})
+    cols = {"total_mass_kg": total_mass_kg}
     for j, mat in enumerate(materials):
-        mat_df[f"ratio__{mat}"]   = ratios[:, j]
-        mat_df[f"mass_kg__{mat}"] = material_mass_kg[:, j]
-    mat_df.to_csv(
-        DIR_MAT_SAMP / f"materials_samples_{seg_group}_{motor}.csv",
-        index=False,
-    )
+        cols[f"ratio__{mat}"]   = ratios[:, j]
+        cols[f"mass_kg__{mat}"] = material_mass_kg[:, j]
+    save_samples_npy(DIR_MAT_SAMP / f"materials_samples_{seg_group}_{motor}", cols)
 
     for j, mat in enumerate(materials):
         x = material_mass_kg[:, j]
@@ -952,12 +973,12 @@ def main() -> None:
             grand_mass  += total_mass_kg
 
             # ── 4. Base exports ────
-            pd.DataFrame({
+            save_samples_npy(DIR_SAMP / f"samples_{seg_group}_{motor}", {
                 "count":         total_count,
                 "unit_mass_g":   unit_mass_g,
                 "total_mass_kg": total_mass_kg,
                 "has_gearbox":   has_gearbox.astype(int),
-            }).to_csv(DIR_SAMP / f"samples_{seg_group}_{motor}.csv", index=False)
+            })
 
             export_histogram_csv(total_count,   DIR_HIST / f"hist_{seg_group}_{motor}_count.csv")
             export_histogram_csv(total_mass_kg, DIR_HIST / f"hist_{seg_group}_{motor}_mass.csv")
