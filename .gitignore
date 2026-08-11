@@ -40,3 +40,8 @@ Thumbs.db
 .positron/
 # Monte Carlo raw draws: regenerable, large, and synced by iCloud.
 *.npy
+
+# Monte Carlo raw-draw sidecars: regenerable, written beside the .npy files.
+PCBAreaMC/raw_data/*.json
+ElectricMotorMC/samples_csv/*.json
+ElectricMotorMC/materials_samples_csv/*.json
