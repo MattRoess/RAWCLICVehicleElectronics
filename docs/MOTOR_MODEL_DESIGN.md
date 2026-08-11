@@ -1,6 +1,13 @@
 # Auxiliary motors — design note (year axis)
 
-**Written 2026-08-11. Nothing here is implemented.**
+**Written 2026-08-11. M-a is done; M-b to M-d are not implemented.**
+
+> **Sheet-addition safety, recorded because it went wrong once.** Adding a
+> `Notes` sheet to `01_` on 2026-08-09 broke *both* sensor models — their
+> readers apply fixed `usecols` to every sheet. `ElectricMotorMC` was checked
+> *before* writing rather than assumed safe: it filters with
+> `if sh in KNOWN_MAT_SHEETS`, so an unrecognised sheet is skipped. `05_` has
+> exactly one reader. Verified after the fact by a full re-run.
 
 Companions: `MOTOR_MODEL_DIAGNOSTIC.md` (what is broken today),
 `AUX_MOTOR_ADOPTION_RESEARCH.md` (the evidence), `PCB_MODEL_DESIGN.md` (the
@@ -136,7 +143,7 @@ numbers, and they would fail loudly if the headroom anchors were mis-ordered.
 
 | Step | Work | Verified by |
 |---|---|---|
-| **M-a** | Add the anchors to a new sheet in `05_` (`Motor_Growth`, Min/Mode/Max per segment) — **data, no code** | readable by `pandas` |
+| ~~**M-a**~~ | ~~Add the anchors to a new sheet in `05_`~~ | **DONE 2026-08-11.** `Motor_Growth` sheet written, header row 26, reads exactly 3 rows. `ElectricMotorMC` re-run: exit 0, 4 material sheets loaded — unchanged |
 | **M-b** | Port the accumulator into `ElectricMotorMC` from `tools/accumulator.py` | **M5** |
 | **M-c** | Year axis + the convergence curve, per-vehicle τ draw held across years | **M1–M4** |
 | **M-d** | Flow the year axis into `ElectricMotorElementMC` | element mass at 2025 unchanged |
