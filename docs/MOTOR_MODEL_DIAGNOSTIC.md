@@ -1,6 +1,6 @@
 # Auxiliary motors — diagnostic before any modelling
 
-**Written 2026-08-11. Nothing is implemented and nothing is fixed here.** This
+**Written 2026-08-11. No motor model or motor data was changed.** This
 answers the question the user set: *which count source should the year axis be
 built on?* — by measuring, not by choosing.
 
@@ -164,6 +164,8 @@ error when it appears.
 
 ## 5. What this diagnostic did NOT do
 
-- No fix to `05_`, `12_`, `01_`, or any model.
+- No fix to `05_`, `12_`, or any motor model. (`01_` *was* corrected in the same
+  commit, but for the PCB zonal labels — unrelated to motors. See
+  `PCB_MODEL_DESIGN.md` §2.2h.)
 - No year axis, no driver, no research into the feature-content trend.
 - No view on whether `HIST_BINS = 140` should change — flagged only.
