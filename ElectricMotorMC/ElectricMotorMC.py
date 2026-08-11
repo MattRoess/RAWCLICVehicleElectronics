@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -41,7 +42,17 @@ for d in [
 # ────
 N_SAMPLES = 200_000
 RNG_SEED  = 42
-HIST_BINS = 140
+
+# 50-bin histograms are a PROJECT CONVENTION and are not negotiable: every other
+# exported histogram in this suite has 50 bins so they can be compared by eye.
+# This model used 140 until 2026-08-11 (step M-b), which made its histograms
+# incomparable with the rest AND propagated into ElectricMotorElementMC, which
+# resamples these CSVs to build element masses.
+# Imported rather than redeclared so there is ONE definition across the suite.
+sys.path.insert(0, str((Path(__file__).resolve().parent.parent / "tools")))
+from accumulator import N_HIST_BINS   # noqa: E402
+
+HIST_BINS = N_HIST_BINS
 TOP_N_MAT = 8
 
 SEGMENT_GROUPS = {

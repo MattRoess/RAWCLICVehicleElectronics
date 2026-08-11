@@ -144,7 +144,9 @@ numbers, and they would fail loudly if the headroom anchors were mis-ordered.
 | Step | Work | Verified by |
 |---|---|---|
 | ~~**M-a**~~ | ~~Add the anchors to a new sheet in `05_`~~ | **DONE 2026-08-11.** `Motor_Growth` sheet written, header row 26, reads exactly 3 rows. `ElectricMotorMC` re-run: exit 0, 4 material sheets loaded — unchanged |
-| **M-b** | Port the accumulator into `ElectricMotorMC` from `tools/accumulator.py` | **M5** |
+| **M-b1** | ~~`HIST_BINS 140 -> 50`~~ | **DONE 2026-08-11.** Imported from `tools/accumulator.py`, not redeclared. Histogram CSVs 140 rows -> 50, `ElectricMotorMC` exit 0 |
+| **M-b2** | Port the accumulator into `ElectricMotorMC` | **NOT DONE.** Bigger than the PCB port: this model holds `N_SAMPLES` arrays through a three-deep nested loop, so chunking means restructuring the main body. Not a blocker for M-c (51 years is ~82 MB/metric, uncomfortable not fatal) |
+| **M-b3** | **Raw samples CSV -> `.npy`** | **NOT DONE, and larger than the PCB case: 658 MB.** `materials_samples_csv` 527 MB + `samples_csv` 131 MB. Same decision as PCBAreaMC on 2026-08-10 (float32 `.npy`, `mmap_mode="r"`, ~4.6x smaller). Note `ElectricMotorElementMC` resamples `materials_histograms_csv`, NOT these, so the conversion is self-contained |
 | **M-c** | Year axis + the convergence curve, per-vehicle τ draw held across years | **M1–M4** |
 | **M-d** | Flow the year axis into `ElectricMotorElementMC` | element mass at 2025 unchanged |
 
