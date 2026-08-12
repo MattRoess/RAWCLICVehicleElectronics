@@ -246,4 +246,87 @@ into `ElectricMotorElementMC` element masses.
 **M-c is unaffected either way** — it is a multiplier on whatever base the model
 produces, so the growth percentages above stand. Only the absolute level moves.
 
-**NOT FIXED. Needs the user's decision.**
+### 8.2 FIXED 2026-08-12
+
+`sample_motor_counts` now **averages** across the segments in a group instead of
+summing them. A segment group is one representative vehicle spanning A and B,
+not two vehicles.
+
+| | before | after | published band |
+|---|---|---|---|
+| AB | 28.07 | **14.03** | — |
+| CD | 52.62 | **26.31** | — |
+| **EF** | **111.83** | **55.91** | **40–60, premium >80** |
+
+**EF now lands inside the independently published band.** Before the fix it sat
+at nearly twice the top of the premium range.
+
+**M1–M4 still all pass, and the growth percentages are IDENTICAL** — +39.7% /
++28.5% / +12.4%, unchanged to the decimal. That is not a coincidence but a
+confirmation: `g(y)` contains no base count, so halving the base cannot move the
+trajectory. The two results being bit-identical in percentage terms is the
+cleanest available evidence that M-c and this bug were genuinely independent.
+
+`ElectricMotorElementMC` re-run afterwards, since it resamples the changed
+histograms. **Every motor mass and element mass this project has ever reported
+was ~2× too high until this commit.**
+
+---
+
+## 9. KNOWN LIMITATION 2026-08-12 — Chinese-style EF interior content
+
+**User's question, and it is a real gap:** Chinese EF-segment BEVs offer massage
+in multiple seats, which implies a large number of motors. Is that captured?
+
+**Largely no.**
+
+- `12_` lists *"Seat ventilation/massage modules"* with EF medium-DC motors
+  **`0.0–0.0`** — the component exists and is credited with **zero motors**.
+  (`12_` is not the count basis, but nothing else counts massage seating either.)
+- `05_` EF averages **58.8** motors (13.2 small stepper + 12.0 medium stepper +
+  33.5 medium DC).
+
+**Rough build-up for a four-massage-seat EF BEV:**
+
+| | motors |
+|---|---|
+| front seats, full power adjust | 2 × 8–10 = 16–20 |
+| rear executive seats | 2 × 6–8 = 12–16 |
+| massage pumps / compressors | 2–4 |
+| **seats alone** | **~30–40** |
+
+Plus windows 4–6, mirrors 4–6, HVAC flaps 8–15, wipers 2–3, pumps 5–8,
+tailgate 2–3, charge port. **That reaches 70–100+, above `05_`'s F range of
+53–81 and well above the EF group average of 58.8.** DERIVED, order-of-magnitude.
+
+### Where it bites: the EF headroom anchor, not the 2025 level
+
+EF headroom is **1.05 / 1.15 / 1.30** — "near-saturated, little left to gain".
+That reasoning rests on **European** fitment data: power seats and windows
+already universal, liftgate >62% hands-free capable.
+
+**It assumes the feature set is complete. Chinese premium interiors say it is
+not** — massage, ventilation, powered rear seats and rear-entertainment
+actuators are an additional layer on top. If those spread to Europe, EF's
+remaining headroom exceeds 1.15 and **the Max of 1.30 may be too low.**
+
+**This is structurally the same argument the user made about lidar**
+(`ADAS_Sensor_Adoption_Report`): China leads, Europe follows, because Chinese
+OEMs sell into Europe and European OEMs respond competitively. That argument was
+right for lidar; the mechanism here is identical.
+
+### Not changed, and why
+
+The anchors are the **only invented numbers in the motor design**. Raising them
+on a plausible argument rather than evidence would weaken exactly the property
+that makes them reviewable. **Options, in preference order:**
+
+1. **Research it** — massage/ventilated seat fitment in Chinese premium BEVs and
+   their European launches. Bounded, like the power-liftgate search.
+2. **Then raise the EF band** if the evidence supports it — e.g. Mode 1.15 →
+   1.25, Max 1.30 → 1.60.
+3. **Or leave it** and treat this section as the caveat on EF results.
+
+**Status: recorded, not acted on.** EF motor growth of +12.4% to 2070 should be
+read as *conditional on European feature content*, and is the figure most likely
+to be revised upward.

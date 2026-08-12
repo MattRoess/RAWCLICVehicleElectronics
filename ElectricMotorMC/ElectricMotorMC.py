@@ -420,21 +420,44 @@ def sample_motor_counts(
     rows_a = df_num[df_num[seg_col].astype(str).str.strip().str.upper() == seg_a.upper()]
     rows_b = df_num[df_num[seg_col].astype(str).str.strip().str.upper() == seg_b.upper()]
 
-    total       = np.zeros(n, dtype=float)
-    max_len     = max(len(rows_a), len(rows_b))
     rows_a_list = list(rows_a.itertuples())
     rows_b_list = list(rows_b.itertuples())
 
-    for i in range(max_len):
-        for rows_list in [rows_a_list, rows_b_list]:
-            if i < len(rows_list):
-                row = rows_list[i]
-                lo  = float(getattr(row, low_col.replace(" ", "_")))
-                hi  = float(getattr(row, high_col.replace(" ", "_")))
-                if hi > 0:
-                    total += uniform(rng, lo, hi, n)
+    # AVERAGE across the two segments in the group, do NOT sum.
+    #
+    # FIXED 2026-08-12. This summed segment A's rows AND segment B's rows, so an
+    # "AB vehicle" was credited with an A-segment car's motors PLUS a B-segment
+    # car's -- roughly 2x the real count. A segment GROUP is one representative
+    # vehicle spanning A and B, not two vehicles.
+    #
+    # The external anchor is what settled it (AUX_MOTOR_ADOPTION_RESEARCH.md §1,
+    # all-motor content 40-60 per vehicle, premium >80):
+    #
+    #     EF summed    111.8 motors/vehicle   -- nearly 2x the top of premium
+    #     EF averaged   58.8 motors/vehicle   -- inside the published band
+    #
+    # It survived because the research had been checked against 05_'s INPUT band
+    # (EF 38-63 vs 40-60) and that was read as the model being sound. It
+    # confirmed the input, not the output. A cross-check that stops at the input
+    # does not validate the model.
+    per_segment = []
+    for rows_list in (rows_a_list, rows_b_list):
+        if not rows_list:
+            continue
+        seg_total = np.zeros(n, dtype=float)
+        contributed = False
+        for row in rows_list:
+            lo = float(getattr(row, low_col.replace(" ", "_")))
+            hi = float(getattr(row, high_col.replace(" ", "_")))
+            if hi > 0:
+                seg_total += uniform(rng, lo, hi, n)
+                contributed = True
+        if contributed:
+            per_segment.append(seg_total)
 
-    return total
+    if not per_segment:
+        return np.zeros(n, dtype=float)
+    return np.mean(per_segment, axis=0)
 
 
 # ────
