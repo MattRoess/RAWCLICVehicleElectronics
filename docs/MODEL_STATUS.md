@@ -167,6 +167,8 @@ gradient cannot invert), V12 (one curve, two models).
 | `11_PCB_Distribution_Classified.csv` | generated from `01_` | no |
 | `12_Motor_Distribution.csv` | generated from `01_`, **read by nothing** | — |
 | `17_`, `18_`, `19_` | wiring baseline, technology penetration, ADAS adoption | **yes** |
+| `20_scenarios.xlsx` | **scenario control** — `Control!B4` selects, `Scenarios` + `Motor_Scenarios` define | — |
+| **`30_BEV_electronics_composition.csv`** | **the combined output for stock-and-flow modelling** — g/vehicle by year, segment, domain, element | **yes** |
 
 **`01_`'s four-level scale (1.00 / 0.50 / 0.25 / 0.00) cannot express an
 arbitrary share.** Where a composed value falls between two labels the
@@ -217,6 +219,8 @@ external figure was checked against the model's *input* rather than its
 | file | what it is |
 |---|---|
 | **`MODEL_STATUS.md`** | **this file — start here** |
+| `USER_GUIDE.md` | **how to run the models and its scenarios**, for a non-specialist |
+| `METHODS.md` | **the approach, data provenance and references** — publication basis |
 | `PCB_MODEL_DESIGN.md` | PCB design, evidence and step log (P-a … P-g) |
 | `MOTOR_MODEL_DESIGN.md` | motor design and step log (M-a … M-d) |
 | `MOTOR_MODEL_DIAGNOSTIC.md` | why `05_` is the motor count basis |
