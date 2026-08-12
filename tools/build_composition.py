@@ -66,14 +66,25 @@ SEGMENTS = ["AB", "CD", "EF"]
 YEARS = np.arange(2020, 2071)
 BASE_YEAR = 2025
 
+VAL_C, LO_C, HI_C = "Mass_g_per_vehicle", "P2_5_g", "P97_5_g"
+
 rows: list[dict] = []
 
 
-def add(year, seg, domain, element, grams, basis, ctype="", hist=""):
+def add(year, seg, domain, element, grams, basis, ctype="", hist="",
+        lo=None, hi=None, band=""):
+    """band: what the P2.5/P97.5 columns actually represent, per row.
+
+    This is a Monte Carlo model and the range is the point, so the deliverable
+    carries it. But the band does not mean the same thing in every domain, and
+    saying so per row is better than a footnote nobody reads.
+    """
     rows.append({"Year": int(year), "Segment": seg, "Domain": domain,
                  "Component_Type": ctype, "Element": element,
-                 "Mass_g_per_vehicle": float(grams), "Basis": basis,
-                 "Histogram_File": hist})
+                 "Mass_g_per_vehicle": float(grams),
+                 "P2_5_g": float(lo) if lo is not None else float("nan"),
+                 "P97_5_g": float(hi) if hi is not None else float("nan"),
+                 "Basis": basis, "Band_meaning": band, "Histogram_File": hist})
 
 
 # ---------------------------------------------------------------- 1. WIRING
@@ -97,7 +108,9 @@ def wiring():
             continue
         add(r["Year"], seg, "Wiring", "Cu", float(r["Mean"]) * 1000.0, "modelled",
             ctype=str(r["Code"]),
-            hist="Wiring/outputs/data/bev_wiring_histograms.csv")
+            hist="Wiring/outputs/data/bev_wiring_histograms.csv",
+            lo=float(r["P2_5"]) * 1000.0, hi=float(r["P97_5"]) * 1000.0,
+            band="full model band")
         n += 1
     print(f"  wiring        {n:5d} rows")
 
@@ -115,7 +128,8 @@ def pcb():
         cat, size = str(r["Category"]), str(r["Size"])
         add(r["Year"], r["Segment"], "PCB", r["Element"], r["Mean_g"], "modelled",
             ctype=f"{cat} / {size}",
-            hist=f"PCBAreaMC/histograms/histogram_{r['Segment']}_{cat}_{size}_area.csv")
+            hist=f"PCBAreaMC/histograms/histogram_{r['Segment']}_{cat}_{size}_area.csv",
+            lo=r["P025_g"], hi=r["P975_g"], band="full model band")
     print(f"  PCB           {len(d):5d} rows")
 
 
@@ -134,12 +148,18 @@ def motors():
         return
     y = pd.read_csv(yf)
     mass = y[y.Quantity == "mass"]
-    scale = {}
+    scale, scale_lo, scale_hi = {}, {}, {}
     for seg in SEGMENTS:
-        s = mass[mass.Segment == seg].set_index("Year")["Mean"]
-        if s.empty:
+        m = mass[mass.Segment == seg].set_index("Year")
+        if m.empty:
             continue
-        scale[seg] = s / s.loc[BASE_YEAR]
+        base = m["Mean"].loc[BASE_YEAR]
+        scale[seg] = m["Mean"] / base
+        # The band here is the MOTOR MASS band only -- how many motors and how
+        # heavy. Composition is frozen at 2025 by decision, so its own
+        # uncertainty is NOT included. Labelled per row rather than buried.
+        scale_lo[seg] = m["P025"] / base
+        scale_hi[seg] = m["P975"] / base
 
     # Case encodes BOTH segment and motor type, e.g. "EF_MediumDCMotors_metal".
     # Filter to the segment, then SUM its four motor types -- averaging across
@@ -173,7 +193,10 @@ def motors():
             for yr in YEARS:
                 if yr in scale[seg].index:
                     add(yr, seg, "Motors", el, g25 * float(scale[seg].loc[yr]),
-                        "scaled", ctype=mtype, hist=hist)
+                        "scaled", ctype=mtype, hist=hist,
+                        lo=g25 * float(scale_lo[seg].loc[yr]),
+                        hi=g25 * float(scale_hi[seg].loc[yr]),
+                        band="motor count/mass only; composition fixed")
                     n += 1
     print(f"  motors        {n:5d} rows   (2025 composition x motor-mass growth)")
 
@@ -226,11 +249,14 @@ def sensors():
             per = lut[key]
             for _, r in g.iterrows():
                 cnt = float(r["Mean"])
+                clo, chi = float(r.get("P025", np.nan)), float(r.get("P975", np.nan))
                 for el, mg in per.items():
                     if mg > 0:
                         add(r["Year"], seg, "Sensors", el, cnt * mg / 1000.0,
                             "modelled", ctype=str(stype),
-                            hist="SensorNumbersMC/csv_monte_carlo/sensor_year_stats.csv")
+                            hist="SensorNumbersMC/csv_monte_carlo/sensor_year_stats.csv",
+                            lo=clo * mg / 1000.0, hi=chi * mg / 1000.0,
+                            band="sensor count only; composition fixed")
                         n += 1
     print(f"  sensors       {n:5d} rows   (per sensor type x year)")
     if unmatched:
@@ -246,10 +272,28 @@ def main():
         sys.exit("No inputs found -- run the models first (see docs/01_USER_GUIDE.md).")
 
     df = pd.DataFrame(rows)
+    # Percentiles do NOT add across independent series -- summing P2.5 would
+    # imply every component sits at its low simultaneously. Rows are already at
+    # the finest grain, so nothing is aggregated here; the grouping only removes
+    # exact duplicates.
     df = (df.groupby(["Year", "Segment", "Domain", "Component_Type", "Element",
-                      "Basis", "Histogram_File"], as_index=False)
-            ["Mass_g_per_vehicle"].sum()
+                      "Basis", "Band_meaning", "Histogram_File"], as_index=False)
+            [["Mass_g_per_vehicle", "P2_5_g", "P97_5_g"]].sum()
             .sort_values(["Year", "Segment", "Domain", "Component_Type", "Element"]))
+    # Enforce P2.5 <= mean <= P97.5.
+    #
+    # Some sensor counts are effectively DETERMINISTIC -- exactly one belt-buckle
+    # sensor per seat -- so the distribution is a point mass and Monte Carlo
+    # noise puts P2.5 a few parts per million ABOVE the mean. Harmless in
+    # itself, but it produced negative error bars downstream and would confuse
+    # anyone consuming the file. Clipping keeps the deliverable self-consistent;
+    # the adjustment is ~1e-6 relative and only touches degenerate series.
+    n_clip = int(((df[LO_C] > df[VAL_C]) | (df[HI_C] < df[VAL_C])).sum())
+    df[LO_C] = np.minimum(df[LO_C], df[VAL_C])
+    df[HI_C] = np.maximum(df[HI_C], df[VAL_C])
+    if n_clip:
+        print(f"  clipped {n_clip:,} degenerate band(s) so P2.5 <= mean <= P97.5")
+
     df.to_csv(OUT_CSV, index=False)
     # The CSV is the deliverable. The workbook is a convenience and is now large
     # enough that writing it into iCloud Drive can time out -- never let that
