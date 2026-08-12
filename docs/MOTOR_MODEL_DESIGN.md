@@ -162,7 +162,19 @@ to 50 only on export, so percentiles are not quantised to 2% of the range.
 motors should export a finer PDF alongside the comparable 50-bin one — it
 becomes a parameter once the accumulator is in, rather than a code change.
 | **M-c** | Year axis + the convergence curve, per-vehicle τ draw held across years | **M1–M4** |
-| **M-d** | Flow the year axis into `ElectricMotorElementMC` | element mass at 2025 unchanged |
+| ~~**M-d**~~ | ~~Flow the year axis into `ElectricMotorElementMC`~~ | **CANCELLED 2026-08-12 — the model stays static, permanently.** Same decision and same reasoning as `SensorElementsMC` (`PCB_MODEL_DESIGN.md` §7.1): the **composition** of a motor in 2070 — how much copper, electrical steel, NdFeB, cast iron — is not forecastable, and a fitted curve would be a fabricated parameter. `10_`/the material sheets stay the **scenario lever**: edit them to explore a case rather than have the model assert a trajectory |
+
+**What is and is not year-resolved for motors, after this decision:**
+
+| | |
+|---|---|
+| **Motor COUNTS and MASS** (`ElectricMotorMC`) | **year-resolved** — M-c. Counts are forecastable: they follow feature content, and that trend is sourced (`AUX_MOTOR_ADOPTION_RESEARCH.md`) |
+| **Element COMPOSITION** (`ElectricMotorElementMC`) | **static, by decision.** A 2025 snapshot, driven by whatever material split the user puts in the data |
+
+This is a clean split rather than an inconsistency: *how many motors and how
+heavy* has evidence behind it; *what they are made of in 2070* does not.
+`ElectricMotorElementMC` outputs must be labelled a 2025 snapshot, exactly like
+`SensorElementsMC`.
 
 **Do `HIST_BINS = 140 → 50` as part of M-b**, not separately: it breaks the
 project's histogram convention and propagates into `ElectricMotorElementMC`
