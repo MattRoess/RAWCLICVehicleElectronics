@@ -58,6 +58,7 @@ because later models read what earlier ones write:
 .venv/bin/python ElectricMotorMC/ElectricMotorMC.py
 .venv/bin/python ElectricMotorElementMC/ElectricMotorElementMC.py
 .venv/bin/python tools/build_composition.py
+.venv/bin/python tools/plot_composition.py
 ```
 
 **Expect 20–40 minutes in total.** Some models take several minutes; that is
@@ -66,7 +67,13 @@ normal, they are simulating 200,000 vehicles each.
 The final command produces the file most people actually want:
 
 **`Data/30_BEV_electronics_composition.csv`** — material grams per vehicle, per
-segment, per year.
+segment, per year, **per component type**.
+
+The last command draws the **overall electronics figures** into
+`Composition/figures/` — total material over time, composition by domain, the
+elements carrying the mass, what actually moves, the wiring HV/LV split, and
+where the material sits in 2025 vs 2070. Nothing else in the project plots the
+combined picture; each model only draws its own domain.
 
 ---
 
@@ -165,9 +172,11 @@ and element:
 | `Year` | 2020–2070 |
 | `Segment` | AB, CD or EF |
 | `Domain` | Wiring, PCB, Sensors, Motors |
+| `Component_Type` | **the detail for deeper work** — sensor type (temperature, pressure, camera…), wiring group (HV Power, LV Power…), PCB category × size, motor type |
 | `Element` | Cu, Fe, Au, Nd … |
 | `Mass_g_per_vehicle` | **grams per vehicle** |
 | `Basis` | `modelled` = the model produced this year directly; `scaled` = 2025 composition × a modelled trend |
+| `Histogram_File` | **path to the probability density function** behind that series — the exported 50-bin histogram |
 
 **To get total copper per car in 2040:** filter `Year = 2040`, `Element = Cu`,
 and sum `Mass_g_per_vehicle` for your segment.

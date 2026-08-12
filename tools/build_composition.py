@@ -10,7 +10,24 @@ car-frame composition.
 
 Output: Data/30_BEV_electronics_composition.csv  (+ .xlsx)
 
-    Year, Segment, Domain, Element, Mass_g_per_vehicle, Basis
+    Year, Segment, Domain, Component_Type, Element, Mass_g_per_vehicle,
+    Basis, Histogram_File
+
+COMPONENT_TYPE is the split needed for detailed work:
+
+    Wiring    functional group -- HV Power, LV Power, Signal/Comm, ADAS/Sensor,
+              Specialized
+    PCB       PCB category x board size -- e.g. "PE_HVS / medium"
+    Motors    motor type -- SmallStepperMotors, MediumStepperMotors,
+              MediumDCMotors_metal, MediumDCMotors_plastic
+    Sensors   NOT resolvable. SensorElementsMC aggregates across sensor types,
+              so its element masses cannot be attributed to a sensor type
+              without inventing a split. Reported as "All sensors" and listed
+              as a limitation rather than faked.
+
+HISTOGRAM_FILE points at the probability density function behind each series --
+the 50-bin histogram CSV the models export. Empty where the model does not emit
+a per-series histogram.
 
 WHAT IS YEAR-RESOLVED AND WHAT IS NOT -- read this before using the numbers.
 
@@ -34,6 +51,7 @@ the central estimate a stock-and-flow model consumes.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -50,10 +68,11 @@ BASE_YEAR = 2025
 rows: list[dict] = []
 
 
-def add(year, seg, domain, element, grams, basis):
+def add(year, seg, domain, element, grams, basis, ctype="", hist=""):
     rows.append({"Year": int(year), "Segment": seg, "Domain": domain,
-                 "Element": element, "Mass_g_per_vehicle": float(grams),
-                 "Basis": basis})
+                 "Component_Type": ctype, "Element": element,
+                 "Mass_g_per_vehicle": float(grams), "Basis": basis,
+                 "Histogram_File": hist})
 
 
 # ---------------------------------------------------------------- 1. WIRING
@@ -64,16 +83,20 @@ def wiring():
         print(f"  SKIP wiring -- {f} not found (run Wiring/BevWiring.py)")
         return
     d = pd.read_csv(f)
-    cu = d[(d.get("Metric") == "Cu (kg)") & (d.get("Level") == "Total")]
+    # Group level, not Total -- Total would discard the functional split
+    # (HV Power / LV Power / Signal-Comm / ADAS-Sensor / Specialized).
+    cu = d[(d.get("Metric") == "Cu (kg)") & (d.get("Level") == "Group")]
     if cu.empty:
-        print(f"  SKIP wiring -- no 'Cu (kg)' / 'Total' rows in {f.name}")
+        print(f"  SKIP wiring -- no 'Cu (kg)' / 'Group' rows in {f.name}")
         return
     n = 0
     for _, r in cu.iterrows():
         seg = str(r["Segment"])
         if seg not in SEGMENTS:
             continue
-        add(r["Year"], seg, "Wiring", "Cu", float(r["Mean"]) * 1000.0, "modelled")
+        add(r["Year"], seg, "Wiring", "Cu", float(r["Mean"]) * 1000.0, "modelled",
+            ctype=str(r["Code"]),
+            hist="Wiring/outputs/data/bev_wiring_histograms.csv")
         n += 1
     print(f"  wiring        {n:5d} rows")
 
@@ -81,13 +104,17 @@ def wiring():
 # ------------------------------------------------------------ 2. PCB ELEMENTS
 def pcb():
     """Element mass in printed circuit boards. Year-resolved by P-f."""
-    f = ROOT / "PCBElementMC" / "csv_results" / "element_mass_totals_by_year.csv"
+    # The DETAILED file, not the totals -- totals discard Category and Size.
+    f = ROOT / "PCBElementMC" / "csv_results" / "element_mass_by_year.csv"
     if not f.exists():
         print(f"  SKIP PCB -- {f} not found (run PCBAreaMC then PCBElementMC)")
         return
     d = pd.read_csv(f)
     for _, r in d.iterrows():
-        add(r["Year"], r["Segment"], "PCB", r["Element"], r["Mean_g"], "modelled")
+        cat, size = str(r["Category"]), str(r["Size"])
+        add(r["Year"], r["Segment"], "PCB", r["Element"], r["Mean_g"], "modelled",
+            ctype=f"{cat} / {size}",
+            hist=f"PCBAreaMC/histograms/histogram_{r['Segment']}_{cat}_{size}_area.csv")
     print(f"  PCB           {len(d):5d} rows")
 
 
@@ -127,8 +154,11 @@ def motors():
         d = pd.read_csv(files[0])
         for seg in SEGMENTS:
             sub = d[d["Case"].astype(str).str.startswith(seg + "_")]
-            for el, kg in sub.groupby("Element")["Mean_mass_kg"].sum().items():
-                tot[seg][el] = float(kg) * 1000.0                          # kg -> g
+            # keep the motor TYPE; Case is "{seg}_{type}". TOTAL_* rows do not
+            # match the prefix and are correctly excluded.
+            for (case, el), kg in sub.groupby(["Case", "Element"])["Mean_mass_kg"].sum().items():
+                mtype = str(case).split("_", 1)[1]
+                tot[seg][(mtype, el)] = float(kg) * 1000.0                 # kg -> g
     if not found:
         print("  SKIP motors -- no elemental_summary.csv (run ElectricMotorElementMC.py)")
         return
@@ -137,57 +167,74 @@ def motors():
     for seg in SEGMENTS:
         if seg not in scale:
             continue
-        for el, g25 in tot[seg].items():
+        for (mtype, el), g25 in tot[seg].items():
+            hist = f"ElectricMotorMC/materials_histograms_csv/hist_{seg}_{mtype}_mass.csv"
             for yr in YEARS:
                 if yr in scale[seg].index:
-                    add(yr, seg, "Motors", el, g25 * float(scale[seg].loc[yr]), "scaled")
+                    add(yr, seg, "Motors", el, g25 * float(scale[seg].loc[yr]),
+                        "scaled", ctype=mtype, hist=hist)
                     n += 1
     print(f"  motors        {n:5d} rows   (2025 composition x motor-mass growth)")
 
 
 # ------------------------------------------------------ 4. SENSOR ELEMENTS
 def sensors():
-    """Sensor element mass = static composition x year-resolved sensor COUNT.
+    """Element mass PER SENSOR TYPE per year.
 
-    SensorElementsMC is static by decision (composition is not forecastable),
-    but SensorNumbersMC gives the count trajectory. Mass per vehicle therefore
-    moves with count while the split inside each sensor stays at 2025.
+        mass(element, sensor type, seg, year)
+            = count(sensor type, seg, year) x composition(element | sensor type)
+
+    Both halves exist and are used directly, so this is fully resolved by
+    sensor type (temperature, pressure, camera, radar, ...) rather than an
+    aggregate:
+
+        counts        SensorNumbersMC/csv_results/sensor_year_stats.csv
+                      rows with Level == "SensorType", year-resolved
+        composition   07_VehicleSensorComposition.xlsx, sheet "Sensor Details",
+                      per-element mg per sensor, Min/Mode/Max
+
+    Composition is the 2025 value and is held constant by decision -- what a
+    sensor is MADE OF is not forecastable (MODEL_STATUS.md section 3). What
+    changes is HOW MANY there are, and that is modelled. Mode is used here;
+    the Min/Max band lives in the source models.
     """
-    cf = ROOT / "SensorNumbersMC" / "csv_results" / "sensor_counts_by_year.csv"
-    counts = None
-    if cf.exists():
-        c = pd.read_csv(cf)
-        col = "Mean" if "Mean" in c.columns else c.columns[-1]
-        counts = {seg: c[c.Segment == seg].set_index("Year")[col] for seg in SEGMENTS
-                  if (c.Segment == seg).any()}
+    cf = ROOT / "SensorNumbersMC" / "csv_monte_carlo" / "sensor_year_stats.csv"
+    comp_f = ROOT / "Data" / "07_VehicleSensorComposition.xlsx"
+    if not cf.exists() or not comp_f.exists():
+        print(f"  SKIP sensors -- need {cf.name} and {comp_f.name}")
+        return
 
-    n = 0
+    c = pd.read_csv(cf)
+    c = c[c["Level"].astype(str) == "SensorType"]
+
+    comp = pd.read_excel(comp_f, sheet_name="Sensor Details")
+    elements = sorted({m.group(1) for col in comp.columns
+                       if (m := re.match(r"^([A-Z][a-z]?)_mode_mg$", str(col)))})
+    comp["_key"] = comp["SensorType"].astype(str).str.strip().str.lower()
+    lut = {r["_key"]: {el: float(r.get(f"{el}_mode_mg", 0) or 0) for el in elements}
+           for _, r in comp.iterrows()}
+
+    n, unmatched = 0, set()
     for seg in SEGMENTS:
-        f = (ROOT / "SensorElementsMC" / "csv_monte_carlo"
-             / f"element_monte_carlo_{seg}_summary_stats.csv")
-        if not f.exists():
-            print(f"  SKIP sensors {seg} -- {f.name} not found")
-            continue
-        d = pd.read_csv(f)
-        ecol = "Element" if "Element" in d.columns else d.columns[0]
-        mcol = "mean" if "mean" in d.columns else "Mean"
-        for _, r in d.iterrows():
-            # SensorElementsMC reports MILLIGRAMS -- Cu at ~69,000 is 69 g, not
-            # 69 kg. Read as grams this inflated the whole file ~1000x.
-            g25 = float(r[mcol]) / 1000.0
-            if counts and seg in counts and BASE_YEAR in counts[seg].index:
-                s = counts[seg] / counts[seg].loc[BASE_YEAR]
-                for yr in YEARS:
-                    if yr in s.index:
-                        add(yr, seg, "Sensors", r[ecol], g25 * float(s.loc[yr]), "scaled")
+        sub = c[c["Segment"] == seg]
+        for stype, g in sub.groupby("Name"):
+            key = str(stype).strip().lower()
+            if key not in lut:
+                unmatched.add(str(stype))
+                continue
+            per = lut[key]
+            for _, r in g.iterrows():
+                cnt = float(r["Mean"])
+                for el, mg in per.items():
+                    if mg > 0:
+                        add(r["Year"], seg, "Sensors", el, cnt * mg / 1000.0,
+                            "modelled", ctype=str(stype),
+                            hist="SensorNumbersMC/csv_monte_carlo/sensor_year_stats.csv")
                         n += 1
-            else:
-                # No count trajectory available -- hold the 2025 value flat and
-                # SAY SO, rather than silently implying it was modelled.
-                for yr in YEARS:
-                    add(yr, seg, "Sensors", r[ecol], g25, "static-2025")
-                    n += 1
-    print(f"  sensors       {n:5d} rows")
+    print(f"  sensors       {n:5d} rows   (per sensor type x year)")
+    if unmatched:
+        print(f"    NOTE {len(unmatched)} sensor type(s) in the count file have no "
+              f"07_ composition and are omitted: {sorted(unmatched)[:6]}")
 
 
 def main():
@@ -198,15 +245,24 @@ def main():
         sys.exit("No inputs found -- run the models first (see docs/USER_GUIDE.md).")
 
     df = pd.DataFrame(rows)
-    df = (df.groupby(["Year", "Segment", "Domain", "Element", "Basis"],
-                     as_index=False)["Mass_g_per_vehicle"].sum()
-            .sort_values(["Year", "Segment", "Domain", "Element"]))
+    df = (df.groupby(["Year", "Segment", "Domain", "Component_Type", "Element",
+                      "Basis", "Histogram_File"], as_index=False)
+            ["Mass_g_per_vehicle"].sum()
+            .sort_values(["Year", "Segment", "Domain", "Component_Type", "Element"]))
     df.to_csv(OUT_CSV, index=False)
-    with pd.ExcelWriter(OUT_XLSX) as xl:
-        df.to_excel(xl, sheet_name="Composition", index=False)
-        (df[df.Year == BASE_YEAR].pivot_table(index="Element", columns="Segment",
-                                              values="Mass_g_per_vehicle", aggfunc="sum")
-           .to_excel(xl, sheet_name=f"Pivot_{BASE_YEAR}"))
+    # The CSV is the deliverable. The workbook is a convenience and is now large
+    # enough that writing it into iCloud Drive can time out -- never let that
+    # failure take the CSV down with it.
+    try:
+        with pd.ExcelWriter(OUT_XLSX) as xl:
+            df.to_excel(xl, sheet_name="Composition", index=False)
+            (df[df.Year == BASE_YEAR]
+               .pivot_table(index=["Domain", "Component_Type", "Element"],
+                            columns="Segment", values="Mass_g_per_vehicle",
+                            aggfunc="sum")
+               .to_excel(xl, sheet_name=f"Pivot_{BASE_YEAR}"))
+    except Exception as e:
+        print(f"  (xlsx not written: {type(e).__name__} -- the CSV above is complete)")
 
     print(f"\n  -> {OUT_CSV.relative_to(ROOT)}   ({len(df):,} rows)")
     print(f"  -> {OUT_XLSX.relative_to(ROOT)}")
