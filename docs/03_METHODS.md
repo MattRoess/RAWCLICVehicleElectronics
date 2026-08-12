@@ -249,7 +249,7 @@ small cars are still acquiring.
 ## 7. Reproducibility
 
 All models are seeded (`seed = 42`) and deterministic. Inputs are spreadsheets;
-scenario selection is a single cell (`20_` `Control!B4`). `docs/USER_GUIDE.md`
+scenario selection is a single cell (`20_` `Control!B4`). `docs/01_USER_GUIDE.md`
 gives the run order. Validation suites (V1–V15, P1–P5, M1–M5) run automatically
 and print PASS/FAIL.
 
@@ -293,10 +293,10 @@ generalisable:**
     massage seating.
     <https://www.plasticstoday.com/automotive-mobility/electro-active-polymers-offer-alternative-to-mechanical-massaging-in-car-seats>
 
-**Driver assistance** — see `ADAS_Sensor_Adoption_Report_2025_2070.md`, which
+**Driver assistance** — see `05_ADAS_SENSOR_ADOPTION_REPORT.md`, which
 carries its own reference list and defines the uncertainty calibration in §1.2.
 
-**Internal documents** — `MODEL_STATUS.md` (status and how to quote results),
-`PCB_MODEL_DESIGN.md`, `MOTOR_MODEL_DESIGN.md`,
-`AUX_MOTOR_ADOPTION_RESEARCH.md`, `MOTOR_MODEL_DIAGNOSTIC.md`,
-`STATIC_MODELS_DIAGNOSTIC.md`.
+**Internal documents** — `02_MODEL_STATUS.md` (status and how to quote results),
+`06_PCB_MODEL_DESIGN.md`, `10_MOTOR_MODEL_DESIGN.md`,
+`09_AUX_MOTOR_ADOPTION_RESEARCH.md`, `08_MOTOR_MODEL_DIAGNOSTIC.md`,
+`07_STATIC_MODELS_DIAGNOSTIC.md`.

@@ -4,11 +4,11 @@
 build it.** Nothing here is implemented.
 
 **Purpose.** `ElectricMotorMC` has no year axis, and
-`MOTOR_MODEL_DIAGNOSTIC.md` §6 established that a sourced feature-content trend
+`08_MOTOR_MODEL_DIAGNOSTIC.md` §6 established that a sourced feature-content trend
 is the prerequisite. This is that trend.
 
 **Scope.** Auxiliary motors — window lifts, seats, pumps, wipers, tailgate,
-mirrors. **Not the traction powertrain** (`PCB_MODEL_DESIGN.md` §8).
+mirrors. **Not the traction powertrain** (`06_PCB_MODEL_DESIGN.md` §8).
 
 Tagging follows the project convention: **FACT** (sourced), **DERIVED**
 (computed here), **ASSUMPTION** (judgement).
@@ -84,7 +84,7 @@ E-latches (electric door releases): **10.7% CAGR 2025–2033**. FACT.
 
 **The compact segment doubles while premium is already saturating.** DERIVED.
 
-**This confirms the prediction made before any research** (`MOTOR_MODEL_DIAGNOSTIC.md`
+**This confirms the prediction made before any research** (`08_MOTOR_MODEL_DIAGNOSTIC.md`
 §3): **AB grows fastest, EF slowest** — the *opposite* of the ADAS tier
 gradient, where EF leads. The mechanism is different: ADAS is capability
 diffusing downward from a frontier, auxiliary motors are a feature set EF has
@@ -264,7 +264,7 @@ from a single pump.
 
 **So a 10-point massage seat adds roughly ONE motor, not ten.**
 
-**`MOTOR_MODEL_DESIGN.md` §9's build-up — "seats alone ~30–40 motors" —
+**`10_MOTOR_MODEL_DESIGN.md` §9's build-up — "seats alone ~30–40 motors" —
 overstated this** by treating massage points as motors. Corrected here.
 Electro-active polymer alternatives are emerging and are also not motors.
 

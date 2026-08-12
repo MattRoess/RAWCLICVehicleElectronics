@@ -8,8 +8,8 @@ implemented and committed; P-b is deferred and P-f, P-g are not started.**
 P-e is committed with a KNOWN FAILING validation -- P1 for AB -- see §2.2j.
 The step table in §6 is the authoritative status.
 
-Companions: `SENSOR_MODEL_DESIGN.md` (the same job, for sensors),
-`STATIC_MODELS_DIAGNOSTIC.md` (what is currently frozen),
+Companions: `04_SENSOR_MODEL_DESIGN.md` (the same job, for sensors),
+`07_STATIC_MODELS_DIAGNOSTIC.md` (what is currently frozen),
 `../Wiring/IMPLEMENTATION_GUIDE.md`.
 
 ---
@@ -420,7 +420,7 @@ presence itself via the shared module, and `11_` stops being the PCB path's
 input. It can remain as a diagnostic export.
 
 *(This also disposes of the gitignored-input problem in
-`STATIC_MODELS_DIAGNOSTIC.md` §5: `11_` stops being a required input.)*
+`07_STATIC_MODELS_DIAGNOSTIC.md` §5: `11_` stops being a required input.)*
 
 ### 4.3 Memory — the same wall, the same trick
 
@@ -497,7 +497,7 @@ three already exist — none has to be invented:
 | Boards per component | `01_` `PCB_total_min` / `_max` and the size split | typically 1–3 boards |
 | Board size per class | `03_` min / mode / max | small 9–80 mm², large 300–1,125 mm² |
 
-Read against `ADAS_Sensor_Adoption_Report_2025_2070.md` §1.2: the project's
+Read against `05_ADAS_SENSOR_ADOPTION_REPORT.md` §1.2: the project's
 **self-consistency floor is ~3%**, cross-house forecast spread **~1.6×**, and
 structural disagreement **3–4×**. **The whole G1+G2+G3 block, at under 9%, sits
 close to that floor** — which is a second, independent reason to measure G4
@@ -711,7 +711,7 @@ moved anything.
 - Siemens Capital — E/E architecture evolution, trends to watch: <https://blogs.sw.siemens.com/ee-systems/2024/09/12/e-e-architecture-evolution-part-2-trends-to-watch/>
 
 *Market-research houses in this list are the **modelled top-down** evidence
-class — see `ADAS_Sensor_Adoption_Report_2025_2070.md` §1.2. Their growth ratios
+class — see `05_ADAS_SENSOR_ADOPTION_REPORT.md` §1.2. Their growth ratios
 are informative; their absolute values are weak. The ECU-count and VW SSP
 figures are the stronger anchors.*
 
@@ -732,11 +732,11 @@ figures are the stronger anchors.*
    composition to explore a case, rather than have the model assert a trajectory.
 
    **Consequence that must be labelled, not fixed:** `SensorElementsMC` outputs
-   are a **2025 snapshot**. `STATIC_MODELS_DIAGNOSTIC.md` §1 records lidar as 0
+   are a **2025 snapshot**. `07_STATIC_MODELS_DIAGNOSTIC.md` §1 records lidar as 0
    in every year there, against 0.765 units/vehicle for EF in the year-resolved
    half. That is correct *as a 2025 statement* — real European lidar penetration
    is ~1–3% and `01_` records `–`. It is only wrong if read as a forecast. See
-   `MODEL_STATUS.md`.
+   `02_MODEL_STATUS.md`.
 2. ~~**Does 800V grow or shrink power-electronics board area?**~~ **ANSWERED
    2026-08-10, §2.1a.** Neither much: absolute area is roughly flat, bounded
    about −33% to +10%, because power density tripled while power ratings also
@@ -805,7 +805,7 @@ state in the way §2.2a's prose mapping assumes.
 2. **Where observed is 0.00** (AB zone controller, CD central computer, AB ADAS
    domain controller) the multiplicative renormaliser gives **zero**, and the
    component is dead in *every* year to 2070 even at 90% zonal share. This is
-   exactly the lidar-dead-forever failure in `STATIC_MODELS_DIAGNOSTIC.md`,
+   exactly the lidar-dead-forever failure in `07_STATIC_MODELS_DIAGNOSTIC.md`,
    rebuilt in a new place.
 
 **Also found: non-breaking spaces in `11_` component names.** The BCM is stored

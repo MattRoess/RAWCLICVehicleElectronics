@@ -20,10 +20,11 @@ COMPONENT_TYPE is the split needed for detailed work:
     PCB       PCB category x board size -- e.g. "PE_HVS / medium"
     Motors    motor type -- SmallStepperMotors, MediumStepperMotors,
               MediumDCMotors_metal, MediumDCMotors_plastic
-    Sensors   NOT resolvable. SensorElementsMC aggregates across sensor types,
-              so its element masses cannot be attributed to a sensor type
-              without inventing a split. Reported as "All sensors" and listed
-              as a limitation rather than faked.
+    Sensors   sensor type -- temperature, pressure, accelerometer, camera, ...
+              59 types. An earlier version of this file claimed sensor type was
+              NOT resolvable; that was wrong. 07_ holds per-SensorType element
+              masses and sensor_year_stats.csv holds counts by type per year, so
+              mass per type is a direct product -- "modelled", not "scaled".
 
 HISTOGRAM_FILE points at the probability density function behind each series --
 the 50-bin histogram CSV the models export. Empty where the model does not emit
@@ -34,11 +35,11 @@ WHAT IS YEAR-RESOLVED AND WHAT IS NOT -- read this before using the numbers.
     Wiring copper     year-resolved     BevWiring
     PCB elements      year-resolved     PCBElementMC (P-f)
     Motor elements    year-resolved     static composition x motor MASS growth
-    Sensor elements   year-resolved     static composition x sensor COUNT growth
+    Sensor elements   year-resolved     count(type, year) x composition(type)
 
 The two "static composition" cases are deliberate. Composition -- what a motor
 or sensor is made OF -- is not forecastable and is frozen at its 2025 value by
-decision (MODEL_STATUS.md section 3). What DOES change is how many there are and
+decision (02_MODEL_STATUS.md section 3). What DOES change is how many there are and
 how heavy they are, and that is sourced. So mass per vehicle moves with count
 and mass while the material split inside each unit stays put.
 
@@ -194,7 +195,7 @@ def sensors():
                       per-element mg per sensor, Min/Mode/Max
 
     Composition is the 2025 value and is held constant by decision -- what a
-    sensor is MADE OF is not forecastable (MODEL_STATUS.md section 3). What
+    sensor is MADE OF is not forecastable (02_MODEL_STATUS.md section 3). What
     changes is HOW MANY there are, and that is modelled. Mode is used here;
     the Min/Max band lives in the source models.
     """
@@ -242,7 +243,7 @@ def main():
     wiring(); pcb(); motors(); sensors()
 
     if not rows:
-        sys.exit("No inputs found -- run the models first (see docs/USER_GUIDE.md).")
+        sys.exit("No inputs found -- run the models first (see docs/01_USER_GUIDE.md).")
 
     df = pd.DataFrame(rows)
     df = (df.groupby(["Year", "Segment", "Domain", "Component_Type", "Element",

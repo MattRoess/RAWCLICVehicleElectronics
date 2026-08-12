@@ -1,6 +1,6 @@
 """Generate Data/19_ADAS_sensor_adoption.xlsx from the report.
 
-Source of every number: docs/ADAS_Sensor_Adoption_Report_2025_2070.md
+Source of every number: docs/05_ADAS_SENSOR_ADOPTION_REPORT.md
 Section references in the sheets point back to it. Regenerate with:
 
     python3 tools/make_19_adas_sensor_adoption.py
@@ -22,7 +22,7 @@ from openpyxl.utils import get_column_letter
 # so the script runs from anywhere.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT = REPO_ROOT / "Data" / "19_ADAS_sensor_adoption.xlsx"
-REPORT = "docs/ADAS_Sensor_Adoption_Report_2025_2070.md"
+REPORT = "docs/05_ADAS_SENSOR_ADOPTION_REPORT.md"
 
 YELLOW = PatternFill("solid", fgColor="FFF2CC")
 ORANGE = PatternFill("solid", fgColor="FCE4D6")

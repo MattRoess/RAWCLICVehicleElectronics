@@ -6,8 +6,8 @@ ADAS-specific and the wrong home for a project-wide switch.
 
     python3 tools/make_20_scenarios.py
 
-Reasoning: docs/SENSOR_MODEL_DESIGN.md section 7, and
-docs/ADAS_Sensor_Adoption_Report_2025_2070.md sections 7.2 and 7.3.
+Reasoning: docs/04_SENSOR_MODEL_DESIGN.md section 7, and
+docs/05_ADAS_SENSOR_ADOPTION_REPORT.md sections 7.2 and 7.3.
 
 Colour convention, same as 17_ / 18_ / 19_:
     YELLOW = editable input
@@ -121,7 +121,7 @@ def build():
     ws.cell(row=14, column=1, value="Read by").font = BOLD
     ws.cell(row=14, column=2,
             value="Wiring/BevWiring.py. SensorNumbersMC.py and the PCB models "
-                  "once they are rewired -- see docs/SENSOR_MODEL_DESIGN.md "
+                  "once they are rewired -- see docs/04_SENSOR_MODEL_DESIGN.md "
                   "section 9.").alignment = WRAP
     widths(ws, ("A", 20), ("B", 105))
 
@@ -218,7 +218,7 @@ def build():
          "The multipliers 1.0 / 1.4 / 2.0 are the largest single lever on the "
          "2070 answer and are NOT sourced. The two mechanisms behind them are "
          "observable; the specific values are judgment. See "
-         "docs/ADAS_Sensor_Adoption_Report_2025_2070.md section 9.2."),
+         "docs/05_ADAS_SENSOR_ADOPTION_REPORT.md section 9.2."),
         ("History",
          "Created 2026-08-05, moved out of 19_ sheet Scenarios so that one "
          "selection drives every model. 19_ keeps tiers, lidar and presence."),

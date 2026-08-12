@@ -489,7 +489,7 @@ and why.**
    segments. Note §6.3 above is the *pre-correction* diagnosis and is left
    standing as the reasoning that produced the change.
 4. ~~**Add a `Year` and `Tier` dimension**~~ — **DONE**, steps 4 and 5 of
-   `SENSOR_MODEL_DESIGN.md`. `SensorNumbersMC.py` runs 2020–2070 with the tier,
+   `04_SENSOR_MODEL_DESIGN.md`. `SensorNumbersMC.py` runs 2020–2070 with the tier,
    voltage and scenario drivers.
 
 ---

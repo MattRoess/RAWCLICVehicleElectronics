@@ -8,7 +8,7 @@ mixture.
 Written 2026-08-10. **Nothing here is implemented.** This is the document that
 gets agreed before code, per the project's sequencing rule.
 
-Companions: `SENSOR_MODEL_DESIGN.md`, `ADAS_Sensor_Adoption_Report_2025_2070.md`,
+Companions: `04_SENSOR_MODEL_DESIGN.md`, `05_ADAS_SENSOR_ADOPTION_REPORT.md`,
 `../Wiring/IMPLEMENTATION_GUIDE.md`.
 
 ---

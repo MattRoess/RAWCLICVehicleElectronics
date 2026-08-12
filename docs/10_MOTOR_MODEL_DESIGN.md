@@ -9,8 +9,8 @@
 > `if sh in KNOWN_MAT_SHEETS`, so an unrecognised sheet is skipped. `05_` has
 > exactly one reader. Verified after the fact by a full re-run.
 
-Companions: `MOTOR_MODEL_DIAGNOSTIC.md` (what is broken today),
-`AUX_MOTOR_ADOPTION_RESEARCH.md` (the evidence), `PCB_MODEL_DESIGN.md` (the
+Companions: `08_MOTOR_MODEL_DIAGNOSTIC.md` (what is broken today),
+`09_AUX_MOTOR_ADOPTION_RESEARCH.md` (the evidence), `06_PCB_MODEL_DESIGN.md` (the
 same job, for PCB).
 
 **Scope.** Auxiliary motors only — window lifts, seats, pumps, wipers, tailgate,
@@ -162,13 +162,13 @@ to 50 only on export, so percentiles are not quantised to 2% of the range.
 motors should export a finer PDF alongside the comparable 50-bin one — it
 becomes a parameter once the accumulator is in, rather than a code change.
 | **M-c** | Year axis + the convergence curve, per-vehicle τ draw held across years | **M1–M4** |
-| ~~**M-d**~~ | ~~Flow the year axis into `ElectricMotorElementMC`~~ | **CANCELLED 2026-08-12 — the model stays static, permanently.** Same decision and same reasoning as `SensorElementsMC` (`PCB_MODEL_DESIGN.md` §7.1): the **composition** of a motor in 2070 — how much copper, electrical steel, NdFeB, cast iron — is not forecastable, and a fitted curve would be a fabricated parameter. `10_`/the material sheets stay the **scenario lever**: edit them to explore a case rather than have the model assert a trajectory |
+| ~~**M-d**~~ | ~~Flow the year axis into `ElectricMotorElementMC`~~ | **CANCELLED 2026-08-12 — the model stays static, permanently.** Same decision and same reasoning as `SensorElementsMC` (`06_PCB_MODEL_DESIGN.md` §7.1): the **composition** of a motor in 2070 — how much copper, electrical steel, NdFeB, cast iron — is not forecastable, and a fitted curve would be a fabricated parameter. `10_`/the material sheets stay the **scenario lever**: edit them to explore a case rather than have the model assert a trajectory |
 
 **What is and is not year-resolved for motors, after this decision:**
 
 | | |
 |---|---|
-| **Motor COUNTS and MASS** (`ElectricMotorMC`) | **year-resolved** — M-c. Counts are forecastable: they follow feature content, and that trend is sourced (`AUX_MOTOR_ADOPTION_RESEARCH.md`) |
+| **Motor COUNTS and MASS** (`ElectricMotorMC`) | **year-resolved** — M-c. Counts are forecastable: they follow feature content, and that trend is sourced (`09_AUX_MOTOR_ADOPTION_RESEARCH.md`) |
 | **Element COMPOSITION** (`ElectricMotorElementMC`) | **static, by decision.** A 2025 snapshot, driven by whatever material split the user puts in the data |
 
 This is a clean split rather than an inconsistency: *how many motors and how
@@ -227,7 +227,7 @@ vehicle" is credited with an A-segment car's motors *plus* a B-segment car's:
 | CD | 55.0 | 27.5 | **52.62** |
 | EF | 117.5 | 58.8 | **111.83** |
 
-**The external anchor decides it.** `AUX_MOTOR_ADOPTION_RESEARCH.md` §1 gives
+**The external anchor decides it.** `09_AUX_MOTOR_ADOPTION_RESEARCH.md` §1 gives
 all-motor content as **40–60 per vehicle, premium >80** (FACT). EF averaged
 (58.8) lands inside. EF summed (111.8) is **nearly double the top of the premium
 range** — not a plausible count for one car.
@@ -293,7 +293,7 @@ in multiple seats, which implies a large number of motors. Is that captured?
 | front seats, full power adjust | 2 × 8–10 = 16–20 |
 | rear executive seats | 2 × 6–8 = 12–16 |
 | massage pumps / compressors | 2–4 |
-| **seats alone** | ~~**~30–40**~~ **OVERSTATED — see `AUX_MOTOR_ADOPTION_RESEARCH.md` §8.1** |
+| **seats alone** | ~~**~30–40**~~ **OVERSTATED — see `09_AUX_MOTOR_ADOPTION_RESEARCH.md` §8.1** |
 
 > **Correction 2026-08-12.** This build-up counted massage *points* as motors.
 > Massage is **pneumatic**: a "ten-point massage" is ten air bladders driven by
@@ -360,7 +360,7 @@ Raising EF to a flat `1.15 / 1.35 / 1.60` made **1.35 the mode — a world nobod
 expects**, the average of *Europe stays European* (~1.15) and *Europe adopts
 Chinese content* (~1.50). No real fleet looks like that average.
 
-**This is exactly what §2.2d of `PCB_MODEL_DESIGN.md` forbids for architecture:**
+**This is exactly what §2.2d of `06_PCB_MODEL_DESIGN.md` forbids for architecture:**
 
 > *A vehicle is one design, never a blend. Share-weighting collapses a bimodal
 > mixture into its mean and destroys the band.*
@@ -421,5 +421,5 @@ flat raise produced.
 
 **Still ASSUMPTION.** The EF numbers rest on an adjustment-**axis** build-up —
 one motor per "way" — not a fitment survey of European-market EF BEVs
-(`AUX_MOTOR_ADOPTION_RESEARCH.md` §8). The scenario structure makes the
+(`09_AUX_MOTOR_ADOPTION_RESEARCH.md` §8). The scenario structure makes the
 disagreement explicit rather than hiding it in a mode.

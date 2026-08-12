@@ -201,7 +201,7 @@ Typical magnitudes at 2025 — useful for spotting a broken run:
    architecture driver reaches only 8.2% of board area, so PCB totals move only
    a few percent. That is *not* a finding that circuit-board material demand is
    flat — it means the biggest possible effect has not been quantified yet
-   (see `MODEL_STATUS.md`, item `P-g`).
+   (see `02_MODEL_STATUS.md`, item `P-g`).
 3. **35 of the 50 motor years are extrapolation.** Published data stops at 2035.
 
 ---

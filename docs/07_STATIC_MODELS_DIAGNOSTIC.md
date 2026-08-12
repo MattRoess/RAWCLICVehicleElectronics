@@ -49,7 +49,7 @@ Two corrections to what earlier documents said:
 
 - **The PCB models do not read `01_`.** `PCBAreaMC` reads `11_`, which
   `BEVElectronicsClassification.py` generates from `01_`. `PCBElementMC` reads
-  `04_` and is not in this chain at all. `HANDOVER.md` §3's phrase "the PCB
+  `04_` and is not in this chain at all. `HANDOVER_2026-08-09.md` §3's phrase "the PCB
   models also read `01_`" is true only indirectly.
 - **`Data/11_` is not empty.** An earlier note recorded it as 0 bytes and the
   chain as broken. It is 22 KB. The zero-byte reading was an **un-downloaded
@@ -109,7 +109,7 @@ Not a plumbing failure — `SensorElementsMC` does apply the presence factors
 (lines 176, 352), and `07_` does carry compositions for lidar's
 `laser diode array`, `photodetector array` and `IMU`, so a change would
 propagate. **The stored outputs were already current: the user re-ran the model
-after the relabelling.** The claim in `HANDOVER.md` §3 that its outputs "have
+after the relabelling.** The claim in `HANDOVER_2026-08-09.md` §3 that its outputs "have
 NOT been re-run" was right for the PCB chain and wrong for this model.
 
 ---
