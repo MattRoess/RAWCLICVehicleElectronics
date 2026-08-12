@@ -338,3 +338,88 @@ that makes them reviewable. **Options, in preference order:**
 **Status: recorded, not acted on.** EF motor growth of +12.4% to 2070 should be
 read as *conditional on European feature content*, and is the figure most likely
 to be revised upward.
+
+---
+
+## 10. DRIVER F — motor content SCENARIOS, 2026-08-12
+
+**User: *"in situations like this, it might also be reflected in scenarios?"* —
+yes, and it is the better mechanism, not an addition to the band.**
+
+### 10.1 Why a band was the wrong shape
+
+A triangular Min/Mode/Max says *"the truth lies in this range, most likely near
+the mode"*. Correct for **measurement** uncertainty — does an EF car carry 55 or
+60 motors?
+
+Whether Chinese-style executive interiors become the European norm is **not**
+measurement uncertainty. It is a **structural fork**: either they do or they do
+not. Two worlds, not two points on a continuum.
+
+Raising EF to a flat `1.15 / 1.35 / 1.60` made **1.35 the mode — a world nobody
+expects**, the average of *Europe stays European* (~1.15) and *Europe adopts
+Chinese content* (~1.50). No real fleet looks like that average.
+
+**This is exactly what §2.2d of `PCB_MODEL_DESIGN.md` forbids for architecture:**
+
+> *A vehicle is one design, never a blend. Share-weighting collapses a bimodal
+> mixture into its mean and destroys the band.*
+
+The flat raise applied to motors the error the project already rejects for
+architecture. **Scenarios fix it.**
+
+### 10.2 The scenarios — `20_` sheet `Motor_Scenarios`
+
+| | weight | AB | CD | EF |
+|---|---|---|---|---|
+| **MS1 `European_Content`** | 0.40 | 1.25/1.40/1.60 | 1.15/1.28/1.45 | **1.05/1.12/1.22** |
+| **MS2 `Chinese_Convergence`** | 0.35 | 1.35/1.55/1.85 | 1.30/1.48/1.70 | **1.30/1.45/1.65** |
+| **MS3 `Cost_Constrained`** | 0.25 | 1.10/1.20/1.35 | 1.05/1.15/1.28 | **1.02/1.08/1.18** |
+
+Weights sum to 1.000. Selected by `20_` `Control!B4` — **the same project-wide
+cell the ADAS driver already uses**, so choosing a scenario once applies it
+everywhere. `SAMPLE` draws per vehicle by weight; a name pins every vehicle.
+
+**The gradient AB > CD > EF holds INSIDE every scenario**, not merely on the
+weighted mean. M4 tests the mechanism, so satisfying it only on average would be
+passing for the wrong reason.
+
+### 10.3 Three draws per vehicle, all held across years
+
+| | |
+|---|---|
+| **scenario** | which world this vehicle lives in |
+| **h** | how much content its segment gains *in that world* |
+| **τ** | how fast cost delivers it |
+
+A vehicle sits on **one** trajectory in **one** world for its whole life.
+Redrawing per year would average the fork away and return a smeared mean
+matching no real fleet.
+
+### 10.4 Result — M1–M4 all pass
+
+| | 2025 | 2070 | |
+|---|---|---|---|
+| AB | 14.0 | 18.5 | **+31.6%** |
+| CD | 26.3 | 32.8 | **+24.6%** |
+| EF | 55.9 | 65.8 | **+17.8%** |
+
+M1 exact (`0.00e+00`), M2 `18.5 < 65.8`, M3 within every band, M4 `32% > 25% >
+18%`.
+
+**EF's +17.8% is the weighted mixture of three coherent worlds**, sitting between
+the European-only anchors (+12.4%) and the flat raise (+27.3%). The distribution
+behind it is **bimodal, which is the truth** — not the smeared unimodal band the
+flat raise produced.
+
+### 10.5 How to use it
+
+- **A specific study?** Pin `Control!B4` to `European_Content`,
+  `Chinese_Convergence` or `Cost_Constrained` for one internally coherent world.
+- **An overall view?** Leave it `SAMPLE`.
+- **Disagree with the fork's likelihood?** The weights are in the sheet.
+
+**Still ASSUMPTION.** The EF numbers rest on an adjustment-**axis** build-up —
+one motor per "way" — not a fitment survey of European-market EF BEVs
+(`AUX_MOTOR_ADOPTION_RESEARCH.md` §8). The scenario structure makes the
+disagreement explicit rather than hiding it in a mode.
