@@ -45,3 +45,7 @@ Thumbs.db
 PCBAreaMC/raw_data/*.json
 ElectricMotorMC/samples_csv/*.json
 ElectricMotorMC/materials_samples_csv/*.json
+
+# The combined composition file is a DELIVERABLE for the stock-and-flow model,
+# not a regenerable intermediate like the other CSVs. Track it.
+!Data/30_BEV_electronics_composition.csv
