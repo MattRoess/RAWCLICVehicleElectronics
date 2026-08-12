@@ -902,6 +902,140 @@ def _export_material_outputs(
 # ────
 # MAIN
 # ────
+# ────
+# STEP M-c, 2026-08-12 -- THE YEAR AXIS, 2020-2070
+#
+# Only motor COUNTS and MASS get a time axis. ElectricMotorElementMC stays
+# static by decision (docs/MOTOR_MODEL_DESIGN.md section 6): how many motors and
+# how heavy has sourced evidence behind it, what they are made of in 2070 does
+# not.
+#
+# MECHANISM (design note section 2). Each segment approaches its own saturated
+# content at a cost-controlled rate:
+#
+#     N(seg,y) = C - (C - N_2025) * exp(-(y - 2025)/tau),   C = N_2025 * headroom
+#
+# Dividing through by N_2025 gives a growth multiplier that does NOT depend on
+# the base count at all:
+#
+#     g(y) = h - (h - 1) * exp(-(y - 2025)/tau)
+#
+# so one per-vehicle curve scales counts and mass alike. Mass follows exactly
+# because unit mass is year-invariant -- 05_'s Mass sheet has no year dimension,
+# the same argument that made P-f an exact multiplier for PCB element mass.
+#
+# WHY EXPONENTIAL, not a growth rate: a constant rate cannot hold to 2070
+# (4.7%/yr compounds to 300-500 motors per car). Saturation is the observed
+# behaviour -- front power windows are >95% fitted and growth has moved to rear
+# and quarter windows. The curve flattens by construction, so no ceiling year
+# has to be invented.
+#
+# WHY HEADROOM IS PER-SEGMENT and multiplicative on its own 2025 content: an AB
+# car will not carry EF's motor count even when cost allows. It has fewer doors,
+# smaller seats, less glass. The physical content differs, not only the price.
+# ────
+
+YEARS_M = np.arange(2020, 2071)
+BASE_YEAR_M = 2025
+I_BASE_M = int(np.where(YEARS_M == BASE_YEAR_M)[0][0])
+
+
+def read_motor_growth(xlsx: Path) -> pd.DataFrame:
+    """Anchors from 05_ sheet Motor_Growth (step M-a).
+
+    ASSUMPTION values bounded by evidence, not FACT. They are the only invented
+    numbers in the motor design -- change them in the workbook, not here.
+    """
+    df = pd.read_excel(xlsx, sheet_name="Motor_Growth", header=25)
+    df = df[df["Segment"].isin(["AB", "CD", "EF"])]
+    return df.set_index("Segment")
+
+
+def growth_curve(rng: np.random.Generator, row, n: int) -> np.ndarray:
+    """(n, n_years) per-vehicle growth multiplier, 1.0 at BASE_YEAR by construction.
+
+    TWO draws per vehicle, both held across ALL years:
+        h    how much content this vehicle's segment ultimately gains
+        tau  how fast cost lets it arrive
+    Held across years so a vehicle sits on ONE adoption trajectory for its whole
+    life -- the same comonotonic discipline as every other scenario axis in this
+    project. Redrawing per year would average the band away and return the mode.
+    """
+    h = rng.triangular(row["Headroom_Min"], row["Headroom_Mode"],
+                       row["Headroom_Max"], size=n)[:, None]
+    tau = rng.triangular(row["Tau_Min_y"], row["Tau_Mode_y"],
+                         row["Tau_Max_y"], size=n)[:, None]
+    dt = (YEARS_M[None, :] - BASE_YEAR_M).astype(float)
+    g = h - (h - 1.0) * np.exp(-dt / tau)
+    # Before BASE_YEAR the same curve runs backwards, which is what the
+    # exponential gives; clip at zero so no draw can go negative in 2020.
+    return np.maximum(g, 0.0)
+
+
+def run_year_axis(grand_totals: dict, df_growth: pd.DataFrame,
+                  rng: np.random.Generator) -> pd.DataFrame:
+    rows = []
+    for seg, tot in grand_totals.items():
+        g = growth_curve(rng, df_growth.loc[seg], len(tot["count"]))
+        for qty in ("count", "mass"):
+            base = tot[qty][:, None]
+            series = base * g                       # (n_draws, n_years)
+            for j, y in enumerate(YEARS_M):
+                col = series[:, j]
+                rows.append({
+                    "Year": int(y), "Segment": seg, "Quantity": qty,
+                    "Mean": float(col.mean()), "Std": float(col.std()),
+                    "P025": float(np.percentile(col, 2.5)),
+                    "P50": float(np.percentile(col, 50)),
+                    "P975": float(np.percentile(col, 97.5)),
+                })
+    return pd.DataFrame(rows)
+
+
+def validate_year_axis(df: pd.DataFrame, grand_totals: dict) -> None:
+    """M1-M4 from docs/MOTOR_MODEL_DESIGN.md section 5."""
+    print("\n" + "=" * 60)
+    print("M-c VALIDATION")
+    print("=" * 60)
+    cnt = df[df.Quantity == "count"]
+    piv = cnt.pivot_table(index="Year", columns="Segment", values="Mean")
+    fails = []
+
+    # M1 -- 2025 reproduces the static counts exactly (g(BASE_YEAR) == 1)
+    print("\n  M1  2025 reproduces 05_ (tolerance exact)")
+    for seg, tot in grand_totals.items():
+        got, want = float(piv.loc[BASE_YEAR_M, seg]), float(tot["count"].mean())
+        d = abs(got - want) / want
+        ok = d < 1e-12
+        fails += [] if ok else ["M1 " + seg]
+        print(f"      {seg}: {want:8.2f} -> {got:8.2f}   reldiff {d:.2e}  {'OK' if ok else 'FAIL'}")
+
+    # M2 -- AB never overtakes EF; the cost mechanism forbids it
+    ab, ef = float(piv.loc[2070, "AB"]), float(piv.loc[2070, "EF"])
+    ok2 = ab < ef
+    fails += [] if ok2 else ["M2"]
+    print(f"\n  M2  AB 2070 < EF 2070 : {ab:.1f} < {ef:.1f}  {'PASS' if ok2 else 'FAIL'}")
+
+    # M3 -- initial rate, deliberately segment-specific: EF is near-saturated,
+    # so sub-1%/yr is the expected answer there, not a defect.
+    print("\n  M3  initial growth rate")
+    bands = {"AB": (1.0, 3.0), "CD": (0.8, 2.5), "EF": (0.3, 1.5)}
+    for seg, (lo, hi) in bands.items():
+        r = (float(piv.loc[2026, seg]) / float(piv.loc[2025, seg]) - 1) * 100
+        ok = lo - 0.5 <= r <= hi + 0.5
+        fails += [] if ok else ["M3 " + seg]
+        print(f"      {seg}: {r:5.2f}%/yr   band {lo}-{hi}  {'OK' if ok else 'FAIL'}")
+
+    # M4 -- the segment gradient must not invert
+    ch = {s: float(piv.loc[2070, s]) / float(piv.loc[2025, s]) - 1 for s in ("AB", "CD", "EF")}
+    ok4 = ch["AB"] > ch["CD"] > ch["EF"]
+    fails += [] if ok4 else ["M4"]
+    print(f"\n  M4  AB% > CD% > EF% : {ch['AB']*100:.0f}% > {ch['CD']*100:.0f}% > "
+          f"{ch['EF']*100:.0f}%  {'PASS' if ok4 else 'FAIL'}")
+
+    print("\n  " + ("ALL PASSED" if not fails else f"FAILED: {fails}"))
+
+
 def main() -> None:
     if not XLSX_FILE.exists():
         raise FileNotFoundError(f"Excel file not found: {XLSX_FILE}")
@@ -1109,6 +1243,18 @@ def main() -> None:
 
     # ── Cross-segment comparison figures ────
     save_grand_total_distribution_plots(grand_totals)
+
+    # ── M-c: the year axis ────
+    df_growth = read_motor_growth(XLSX_FILE)
+    df_year = run_year_axis(grand_totals, df_growth, rng)
+    df_year.to_csv(DIR_SUM / "motor_counts_by_year.csv", index=False)
+    validate_year_axis(df_year, grand_totals)
+    cnt = df_year[df_year.Quantity == "count"].pivot_table(
+        index="Year", columns="Segment", values="Mean")
+    print("\n  Motors per vehicle, 2025 -> 2070:")
+    for seg in ("AB", "CD", "EF"):
+        a, b = float(cnt.loc[2025, seg]), float(cnt.loc[2070, seg])
+        print(f"    {seg}: {a:6.1f} -> {b:6.1f}  ({b/a - 1:+.1%})")
 
     # ── Summary CSVs ────
     pd.DataFrame(summary_rows).to_csv(DIR_SUM / "mc_simulation_summary.csv", index=False)

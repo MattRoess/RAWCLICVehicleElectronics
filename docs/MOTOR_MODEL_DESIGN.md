@@ -195,3 +195,55 @@ second pass, and M5 will catch any side effect.
 
 **Expected magnitude: AB roughly +39%, EF roughly +14% by 2070.** If the result
 is quoted, it must be quoted with §7 attached.
+
+
+---
+
+## 8. M-c DONE 2026-08-12 — and a pre-existing bug it exposed
+
+**M1–M4 all pass.** `motor_counts_by_year.csv` written per segment per year.
+
+| | 2025 → 2070 | design note predicted |
+|---|---|---|
+| AB | **+39.7%** | +38.8% |
+| CD | **+28.5%** | +27.2% |
+| EF | **+12.4%** | +11.7% |
+
+M1 holds **exactly** (`reldiff 0.00e+00`), not to a tolerance: dividing the
+convergence equation by `N_2025` gives `g(y) = h − (h−1)·exp(−(y−2025)/τ)`,
+which contains no base count, so `g(2025) = 1` by construction. Mass follows the
+same multiplier exactly because `05_`'s `Mass` sheet has no year dimension.
+
+### 8.1 THE BUG — `sample_motor_counts` sums the segment pair
+
+**Found by M-c, pre-existing, NOT introduced by it.**
+
+`sample_motor_counts` adds segment A's rows **and** segment B's rows, so an "AB
+vehicle" is credited with an A-segment car's motors *plus* a B-segment car's:
+
+| group | A+B summed | averaged | model reports |
+|---|---|---|---|
+| AB | 29.0 | 14.5 | **28.07** |
+| CD | 55.0 | 27.5 | **52.62** |
+| EF | 117.5 | 58.8 | **111.83** |
+
+**The external anchor decides it.** `AUX_MOTOR_ADOPTION_RESEARCH.md` §1 gives
+all-motor content as **40–60 per vehicle, premium >80** (FACT). EF averaged
+(58.8) lands inside. EF summed (111.8) is **nearly double the top of the premium
+range** — not a plausible count for one car.
+
+**Why it survived until now.** Nothing external had ever been compared against
+the model's *output*. Yesterday's research corroborated `05_`'s **input** band
+(EF 38–63 against 40–60) and that was taken as the model being sound. It
+confirmed the input, not the output. **A cross-check that stops at the input
+does not validate the model.**
+
+**Fix, if approved:** average rather than sum in `sample_motor_counts`, i.e.
+divide the pair total by the number of contributing segments. Roughly a
+**2× reduction in every motor count and mass** the model reports, propagating
+into `ElectricMotorElementMC` element masses.
+
+**M-c is unaffected either way** — it is a multiplier on whatever base the model
+produces, so the growth percentages above stand. Only the absolute level moves.
+
+**NOT FIXED. Needs the user's decision.**
