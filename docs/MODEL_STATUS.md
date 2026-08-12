@@ -46,7 +46,7 @@ current result, is where a real material trend would come from.**
 
 ### 2.2 The motor numbers extrapolate 35 of 50 years
 
-Motor counts 2025 → 2070: **AB +39.7%, CD +28.5%, EF +12.4%** (AB fastest —
+Motor counts 2025 → 2070: **AB +31.6%, CD +24.6%, EF +17.8%** (AB fastest —
 the opposite of the ADAS gradient, and correct: EF is already near-saturated).
 
 **Every source stops at 2035.** The curve past then is the *shape* argued in
@@ -70,7 +70,8 @@ per year would average the band away and hand back the mode.
 |---|---|
 | architecture adoption timing | `shift_shares`, σ = 5 years per vehicle |
 | label quantisation | `01_`'s 4-level scale, triangular within the bin |
-| motor headroom and τ | `Motor_Growth` Min/Mode/Max |
+| motor headroom | **Driver F scenarios** — `20_` `Motor_Scenarios`, three coherent worlds, weights 0.40/0.35/0.25 |
+| motor τ | `Motor_Growth` Min/Mode/Max |
 | board size and count | `03_` and `01_` min/mode/max |
 
 **What does not:** the PCB total band is still dominated by board-size sampling

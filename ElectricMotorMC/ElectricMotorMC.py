@@ -974,32 +974,90 @@ def read_motor_growth(xlsx: Path) -> pd.DataFrame:
     return df.set_index("Segment")
 
 
-def growth_curve(rng: np.random.Generator, row, n: int) -> np.ndarray:
+SCEN_FILE = DATA_DIR / "20_scenarios.xlsx"
+
+
+def read_motor_scenarios():
+    """Driver F -- auxiliary motor content scenarios, 20_ sheet Motor_Scenarios.
+
+    WHY SCENARIOS RATHER THAN A WIDER BAND. Whether Chinese-style executive
+    interiors become the European norm is a STRUCTURAL FORK, not measurement
+    uncertainty: either they do or they do not. A single triangular band with an
+    EF mode of 1.35 describes a world nobody expects -- the average of "Europe
+    stays European" (~1.15) and "Europe adopts Chinese content" (~1.50).
+
+    That is the same error this project forbids for architecture states:
+    share-weighting a bimodal mixture collapses it to its mean and destroys the
+    band (PCB_MODEL_DESIGN.md 2.2d). The fix is the same -- draw ONE scenario
+    per vehicle, hold it across all years, and let the output be bimodal.
+
+    Returns (names, weights, table) with table[(name, seg)] = (min, mode, max).
+    """
+    df = pd.read_excel(SCEN_FILE, sheet_name="Motor_Scenarios", header=23)
+    df = df[df["Segment"].isin(["AB", "CD", "EF"])]
+    table, names, weights = {}, [], []
+    for _, r in df.iterrows():
+        nm = str(r["Name"]).strip()
+        table[(nm, str(r["Segment"]).strip())] = (
+            float(r["Headroom_Min"]), float(r["Headroom_Mode"]),
+            float(r["Headroom_Max"]))
+        if pd.notna(r.get("Weight")):
+            names.append(nm)
+            weights.append(float(r["Weight"]))
+    w = np.array(weights, dtype=float)
+    assert abs(w.sum() - 1.0) < 1e-9, f"scenario weights must sum to 1, got {w.sum()}"
+    return names, w, table
+
+
+def read_active_scenario() -> str:
+    """20_ sheet Control cell B4 -- the project-wide scenario selector.
+
+    One cell read by every model, so choosing a scenario once applies it
+    everywhere. "SAMPLE" draws per vehicle by weight; a Name pins every vehicle.
+    """
+    try:
+        ctl = pd.read_excel(SCEN_FILE, sheet_name="Control", header=None)
+        v = ctl.iloc[3, 1]
+        return str(v).strip() if pd.notna(v) else "SAMPLE"
+    except Exception:
+        return "SAMPLE"
+
+
+def growth_curve(rng, row, n: int, seg: str, scen) -> np.ndarray:
     """(n, n_years) per-vehicle growth multiplier, 1.0 at BASE_YEAR by construction.
 
-    TWO draws per vehicle, both held across ALL years:
-        h    how much content this vehicle's segment ultimately gains
-        tau  how fast cost lets it arrive
-    Held across years so a vehicle sits on ONE adoption trajectory for its whole
-    life -- the same comonotonic discipline as every other scenario axis in this
-    project. Redrawing per year would average the band away and return the mode.
+    THREE draws per vehicle, every one held across ALL years:
+        scenario  which world this vehicle lives in (Driver F)
+        h         how much content its segment gains IN THAT WORLD
+        tau       how fast cost lets it arrive
+    A vehicle sits on ONE trajectory in ONE world for its whole life. Redrawing
+    per year would average the fork away and return a smeared mean matching no
+    real fleet.
     """
-    h = rng.triangular(row["Headroom_Min"], row["Headroom_Mode"],
-                       row["Headroom_Max"], size=n)[:, None]
+    names, weights, table, active = scen
+    if active == "SAMPLE":
+        pick = rng.choice(len(names), size=n, p=weights)
+    else:
+        if active not in names:
+            raise ValueError(f"Control!B4 = {active!r}; expected SAMPLE or one of {names}")
+        pick = np.full(n, names.index(active), dtype=int)
+
+    lo = np.array([table[(nm, seg)][0] for nm in names])
+    mo = np.array([table[(nm, seg)][1] for nm in names])
+    hi = np.array([table[(nm, seg)][2] for nm in names])
+    h = rng.triangular(lo[pick], mo[pick], hi[pick])[:, None]
+
     tau = rng.triangular(row["Tau_Min_y"], row["Tau_Mode_y"],
                          row["Tau_Max_y"], size=n)[:, None]
     dt = (YEARS_M[None, :] - BASE_YEAR_M).astype(float)
-    g = h - (h - 1.0) * np.exp(-dt / tau)
-    # Before BASE_YEAR the same curve runs backwards, which is what the
-    # exponential gives; clip at zero so no draw can go negative in 2020.
-    return np.maximum(g, 0.0)
+    return np.maximum(h - (h - 1.0) * np.exp(-dt / tau), 0.0)
 
 
 def run_year_axis(grand_totals: dict, df_growth: pd.DataFrame,
-                  rng: np.random.Generator) -> pd.DataFrame:
+                  rng: np.random.Generator, scen) -> pd.DataFrame:
     rows = []
     for seg, tot in grand_totals.items():
-        g = growth_curve(rng, df_growth.loc[seg], len(tot["count"]))
+        g = growth_curve(rng, df_growth.loc[seg], len(tot["count"]), seg, scen)
         for qty in ("count", "mass"):
             base = tot[qty][:, None]
             series = base * g                       # (n_draws, n_years)
@@ -1269,7 +1327,12 @@ def main() -> None:
 
     # ── M-c: the year axis ────
     df_growth = read_motor_growth(XLSX_FILE)
-    df_year = run_year_axis(grand_totals, df_growth, rng)
+    names, weights, table = read_motor_scenarios()
+    active = read_active_scenario()
+    scen = (names, weights, table, active)
+    print(f"\n  Driver F scenarios: {', '.join(names)}")
+    print(f"  weights {np.round(weights, 3).tolist()}   active = {active}")
+    df_year = run_year_axis(grand_totals, df_growth, rng, scen)
     df_year.to_csv(DIR_SUM / "motor_counts_by_year.csv", index=False)
     validate_year_axis(df_year, grand_totals)
     cnt = df_year[df_year.Quantity == "count"].pivot_table(
