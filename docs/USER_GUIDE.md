@@ -188,8 +188,8 @@ Typical magnitudes at 2025 — useful for spotting a broken run:
 | Motors | 23,400 | 45,600 | 95,800 |
 | Wiring | 33,900 | 56,200 | 75,700 |
 | PCB | 483 | 617 | 715 |
-| Sensors | 196 | 296 | 368 |
-| **total** | **58 kg** | **103 kg** | **173 kg** |
+| Sensors | 113 | 168 | 212 |
+| **total** | **57.9 kg** | **102.5 kg** | **172.5 kg** |
 
 ---
 
