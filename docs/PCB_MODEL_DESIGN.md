@@ -719,9 +719,24 @@ figures are the stronger anchors.*
 
 ## 7. Open questions
 
-1. **Is `SensorElementsMC` in scope?** It is static in the same way, but it is a
-   *sensor* model reading `01_`/`06_`/`07_`, not a PCB one. It would inherit the
-   year axis almost free once the shared presence module exists. Not assumed in.
+1. ~~**Is `SensorElementsMC` in scope?**~~ **DECIDED 2026-08-12 — NO. It stays
+   static, permanently.** User: *"It is impossible to predict future composition
+   of these types of sensors... Data could be modified to reflect certain
+   scenarios. But it is outside of the scope to have a development until 2070."*
+
+   The reasoning is a scope boundary, not an oversight. Sensor **counts** are
+   forecastable and are year-resolved in `SensorNumbersMC`. Sensor
+   **composition** — what materials are inside a camera or a lidar in 2070 — is
+   not, and a fitted curve would be a fabricated parameter of exactly the kind
+   this project refuses. `07_` remains the **scenario lever**: edit the
+   composition to explore a case, rather than have the model assert a trajectory.
+
+   **Consequence that must be labelled, not fixed:** `SensorElementsMC` outputs
+   are a **2025 snapshot**. `STATIC_MODELS_DIAGNOSTIC.md` §1 records lidar as 0
+   in every year there, against 0.765 units/vehicle for EF in the year-resolved
+   half. That is correct *as a 2025 statement* — real European lidar penetration
+   is ~1–3% and `01_` records `–`. It is only wrong if read as a forecast. See
+   `MODEL_STATUS.md`.
 2. ~~**Does 800V grow or shrink power-electronics board area?**~~ **ANSWERED
    2026-08-10, §2.1a.** Neither much: absolute area is roughly flat, bounded
    about −33% to +10%, because power density tripled while power ratings also
