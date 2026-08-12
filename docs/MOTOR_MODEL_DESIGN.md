@@ -293,7 +293,15 @@ in multiple seats, which implies a large number of motors. Is that captured?
 | front seats, full power adjust | 2 × 8–10 = 16–20 |
 | rear executive seats | 2 × 6–8 = 12–16 |
 | massage pumps / compressors | 2–4 |
-| **seats alone** | **~30–40** |
+| **seats alone** | ~~**~30–40**~~ **OVERSTATED — see `AUX_MOTOR_ADOPTION_RESEARCH.md` §8.1** |
+
+> **Correction 2026-08-12.** This build-up counted massage *points* as motors.
+> Massage is **pneumatic**: a "ten-point massage" is ten air bladders driven by
+> **one** air pump, and solenoid valves are not motors. A massage seat adds
+> roughly **one** motor. The real adders are **powered rear seats (8–16)** and
+> **ventilation fans (4–8)**. Revised total: **~13–28 motors**, i.e. **+22% to
+> +48%** on EF's base of 58.8 — which makes the EF headroom **Mode of 1.15 look
+> low** and the **Max of 1.30 plausible**. See §8.4 of the research note.
 
 Plus windows 4–6, mirrors 4–6, HVAC flaps 8–15, wipers 2–3, pumps 5–8,
 tailgate 2–3, charge port. **That reaches 70–100+, above `05_`'s F range of
