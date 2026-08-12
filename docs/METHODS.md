@@ -210,8 +210,8 @@ spreadsheets and both are single-parameter sensitivities.
 | Auxiliary motors | 23,393 | 45,573 | 95,791 |
 | Wiring (Cu) | 33,933 | 56,168 | 75,736 |
 | PCB elements | 483 | 617 | 715 |
-| Sensor elements | 196 | 296 | 368 |
-| **Total** | **58.0 kg** | **102.7 kg** | **172.6 kg** |
+| Sensor elements | 113 | 168 | 212 |
+| **Total** | **57.9 kg** | **102.5 kg** | **172.5 kg** |
 
 **Change to 2070: AB −13.6%, CD −10.1%, EF −0.5%.**
 
