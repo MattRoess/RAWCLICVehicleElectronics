@@ -6,7 +6,7 @@ drivers the wiring model uses, so the two stop describing different vehicles.
 Written 2026-08-05. **Nothing in here is implemented yet.** This is the
 document that gets agreed before code, per the project's own sequencing rule.
 
-Companions: `ADAS_Sensor_Adoption_Report_2025_2070.md` (the sensor evidence
+Companions: `05_ADAS_SENSOR_ADOPTION_REPORT.md` (the sensor evidence
 base), `../Wiring/IMPLEMENTATION_GUIDE.md` (how the same job was done for
 wiring), `../Wiring/BevWiring_STATUS.md`.
 
@@ -261,12 +261,12 @@ Each step is separately verifiable, and each stops for approval.
 | **2** | Create `Data/20_scenarios.xlsx`; repoint `BevWiring.py` at it | wiring results unchanged, 9/9 still passing | **DONE** — identical to 0.000% |
 | **3** | **Port the accumulator into `SensorNumbersMC.py`**, no drivers yet | **V14** — 2025 output matches today's static result | **DONE** — 915/915, worst mean 0.841% |
 | **4** | Add the year axis and the voltage driver (§3) | **V11**, **V12** | **DONE** — V11 passed, V12 = 0.000e+00 |
-| **5** | Add the tier driver from `19_ Presence_per_Tier` | **V13** | **IMPLEMENTED, NOT SIGNED OFF** — V13 21/36, four decisions open, see `HANDOVER.md` §11 |
+| **5** | Add the tier driver from `19_ Presence_per_Tier` | **V13** | **IMPLEMENTED, NOT SIGNED OFF** — V13 21/36, four decisions open, see `HANDOVER_2026-08-09.md` §11 |
 | **6** | Add `metres_per_sensor` architecture factor to `BevWiring.py` (§4) | wiring re-run, V1–V10 | **DONE 2026-08-07** — 9/9; ADAS metres −5.3 to −7.4% by 2070, 2025 anchor unmoved |
 | **7** | PCB models, reusing all of the above | later | not started — **this is now the next step** |
 
 **Do not start step 6 or 7 until step 5 is signed off.** Decision 3 in
-`HANDOVER.md` §11 changes Driver A, which the wiring model also reads — so
+`HANDOVER_2026-08-09.md` §11 changes Driver A, which the wiring model also reads — so
 resolving it after step 6 would mean redoing step 6.
 
 Step 3 is the risky one and carries no behavioural change — deliberately, so

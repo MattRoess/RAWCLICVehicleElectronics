@@ -4,7 +4,7 @@
 answers the question the user set: *which count source should the year axis be
 built on?* — by measuring, not by choosing.
 
-**Scope reminder (§8 of `PCB_MODEL_DESIGN.md`):** `ElectricMotorMC` covers
+**Scope reminder (§8 of `06_PCB_MODEL_DESIGN.md`):** `ElectricMotorMC` covers
 **auxiliary motors — window lifts, seats, pumps, wipers, tailgate — not the
 traction powertrain.** Magnet chemistry and AWD share are traction concerns and
 do not apply.
@@ -170,7 +170,7 @@ what holds.
 
 - No fix to `05_`, `12_`, or any motor model. (`01_` *was* corrected in the same
   commit, but for the PCB zonal labels — unrelated to motors. See
-  `PCB_MODEL_DESIGN.md` §2.2h.)
+  `06_PCB_MODEL_DESIGN.md` §2.2h.)
 - No year axis, no driver, no research into the feature-content trend.
 - No view on whether `HIST_BINS = 140` should change — flagged only.
 

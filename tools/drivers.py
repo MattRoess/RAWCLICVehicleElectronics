@@ -6,7 +6,7 @@ identical but separately maintained, and step 7 was about to add a THIRD copy in
 PCBAreaMC. That is the failure V12 exists to catch: two models computing the
 same share from the same file and drifting apart.
 
-The project's own rule, from SENSOR_MODEL_DESIGN.md section 6.1:
+The project's own rule, from 04_SENSOR_MODEL_DESIGN.md section 6.1:
 
     Do not recompute the tier shares. Read the same source the wiring model
     reads. If it is computed twice it will diverge.
@@ -198,7 +198,7 @@ def shift_shares(shares, years, delta):
     scenario has MORE zonal adoption than the "maximum" one. After
     renormalisation whichever state was perturbed least dominates and the
     scenario labels stop meaning anything. That approach was written and
-    reverted; see PCB_MODEL_DESIGN.md 2.2m.
+    reverted; see 06_PCB_MODEL_DESIGN.md 2.2m.
 
     Shifting the whole curve in TIME keeps the states coherent by construction,
     and "this manufacturer is five years behind" is a scenario that means

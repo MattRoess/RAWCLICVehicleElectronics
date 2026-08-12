@@ -34,7 +34,7 @@ Element mass: **AB −0.30%, CD −1.41%, EF −1.68%.**
 
 **This is NOT a finding that BEV electronics material demand is flat to 2070.**
 It is the measured reach of the architecture driver **as currently scoped** —
-8.2% of board area (`PCB_MODEL_DESIGN.md` §2.2f). A driver reaching 8.2% cannot
+8.2% of board area (`06_PCB_MODEL_DESIGN.md` §2.2f). A driver reaching 8.2% cannot
 move a total by more than a few percent, whatever it does.
 
 **The unsourced gap that bounds this: `P-g`.** Zonal consolidation could touch
@@ -50,7 +50,7 @@ Motor counts 2025 → 2070: **AB +31.6%, CD +24.6%, EF +17.8%** (AB fastest —
 the opposite of the ADAS gradient, and correct: EF is already near-saturated).
 
 **Every source stops at 2035.** The curve past then is the *shape* argued in
-`MOTOR_MODEL_DESIGN.md` §2, not evidence. The headroom and τ anchors in `05_`
+`10_MOTOR_MODEL_DESIGN.md` §2, not evidence. The headroom and τ anchors in `05_`
 sheet `Motor_Growth` are **ASSUMPTION** bounded by evidence — the only invented
 numbers in the motor design.
 
@@ -105,7 +105,7 @@ refused throughout.
   `01_` records lidar as `–` for 2025. That is correct *as a 2025 statement*
   (European lidar penetration is ~1–3%) and wrong only if read as a forecast.
   The year-resolved half of the project says EF reaches 0.765 lidar
-  units/vehicle by 2070 (`STATIC_MODELS_DIAGNOSTIC.md` §1).
+  units/vehicle by 2070 (`07_STATIC_MODELS_DIAGNOSTIC.md` §1).
 - `07_` and `10_` are the **scenario levers**: edit composition to explore a
   case, rather than have the model assert a trajectory.
 
@@ -218,15 +218,15 @@ external figure was checked against the model's *input* rather than its
 
 | file | what it is |
 |---|---|
-| **`MODEL_STATUS.md`** | **this file — start here** |
-| `USER_GUIDE.md` | **how to run the models and its scenarios**, for a non-specialist |
-| `METHODS.md` | **the approach, data provenance and references** — publication basis |
-| `PCB_MODEL_DESIGN.md` | PCB design, evidence and step log (P-a … P-g) |
-| `MOTOR_MODEL_DESIGN.md` | motor design and step log (M-a … M-d) |
-| `MOTOR_MODEL_DIAGNOSTIC.md` | why `05_` is the motor count basis |
-| `AUX_MOTOR_ADOPTION_RESEARCH.md` | the motor growth evidence |
-| `ADAS_Sensor_Adoption_Report_2025_2070.md` | the ADAS tier evidence; **§1.2 defines the uncertainty calibration used throughout** |
-| `SENSOR_MODEL_DESIGN.md` | sensor design |
-| `STATIC_MODELS_DIAGNOSTIC.md` | what was frozen before step 7 |
-| `BRAND_ORIGIN_DESIGN.md` | Driver E — designed, **not implemented** |
+| **`02_MODEL_STATUS.md`** | **this file — start here** |
+| `01_USER_GUIDE.md` | **how to run the models and its scenarios**, for a non-specialist |
+| `03_METHODS.md` | **the approach, data provenance and references** — publication basis |
+| `06_PCB_MODEL_DESIGN.md` | PCB design, evidence and step log (P-a … P-g) |
+| `10_MOTOR_MODEL_DESIGN.md` | motor design and step log (M-a … M-d) |
+| `08_MOTOR_MODEL_DIAGNOSTIC.md` | why `05_` is the motor count basis |
+| `09_AUX_MOTOR_ADOPTION_RESEARCH.md` | the motor growth evidence |
+| `05_ADAS_SENSOR_ADOPTION_REPORT.md` | the ADAS tier evidence; **§1.2 defines the uncertainty calibration used throughout** |
+| `04_SENSOR_MODEL_DESIGN.md` | sensor design |
+| `07_STATIC_MODELS_DIAGNOSTIC.md` | what was frozen before step 7 |
+| `11_BRAND_ORIGIN_DESIGN.md` | Driver E — designed, **not implemented** |
 | `HANDOVER*.md` | session handovers |
