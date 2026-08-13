@@ -336,7 +336,82 @@ been rebuilt.
 
 ---
 
-## 6. Still open
+## 6. Motor elements — two more defects (item A2)
+
+Fixing §5 left the composition still 0.50% (CD) and 0.94% (EF) off. Chasing that
+residual found two further defects, both real maths errors.
+
+### A2a — the element model discarded its own draws and resampled a histogram
+
+`sample_from_histogram()` read an **exported 50-bin histogram** of each material
+mass and drew from it, even though `ElectricMotorMC` writes its actual 200,000
+per-draw material masses to `materials_samples_csv/*.npy`.
+
+This is the same *class* of error as `_lognormal_from_band` in §1 — real
+information exists and is thrown away — though far milder, since it used the
+true shape rather than an invented one.
+
+**The worse half was the pairing.** Each stream was resampled from its own
+histogram *independently*, so "draw i" of copper and "draw i" of steel came from
+two unrelated motors. A heavy motor is heavy in every material at once;
+independent resampling destroys that, and every grand total formed by summing
+streams inherited the error.
+
+**Fix:** `load_material_draws()` reads the `.npy` column directly. It takes the
+**first n rows, not a random subset** — the draws are i.i.d. so the first n are a
+valid sample, and using the *same* row indices for every stream is what keeps a
+motor's copper and its steel belonging to the same motor.
+
+Alone, this fixed AB (0.02% → 0.004%) but barely moved CD and EF. That pointed
+at something else.
+
+### A2b — NdFeB fractions did not sum to 1
+
+| stream | sum(elements) / TotalMass, before |
+|---|---|
+| Cast Fe Steel | 1.0000 |
+| Electrical Steel | 1.0000 |
+| Copper | 0.9999 |
+| **NdFeB** | **0.982 – 1.113, mean 1.041** |
+
+`sample_ndfeb_composition()` drew **every** element, Fe included, independently
+between its own min and max, with nothing forcing the eleven fractions to sum to
+1. So a kilogram of magnet became 1.041 kg of elements on average — worst where
+NdFeB content is highest.
+
+The other three streams never had this problem: Cast Fe Steel and Electrical
+Steel already compute `Fe = 1 - sum(others)`.
+
+**Fix:** Fe is now the **balance element** in NdFeB too, matching the pattern
+already in the file. This is the physically correct constraint as well as the
+arithmetically correct one — NdFeB is Nd₂Fe₁₄B with substitutions and iron makes
+up the remainder by definition. The drawn balance is checked against the range
+the sheet reports for Fe, warning (not silently clamping) if they disagree;
+`NDFEB_FE_TOL = 0.02`.
+
+### A3 — motor draws are now consumed, not resampled
+
+The joint MC previously bootstrapped motor mass from the saved pool *with
+replacement*. Correct in distribution, but still resampling: it adds noise that
+is not in the model and lets one motor stand in for several vehicles. It now
+walks the pool in step with the run, so each of the 200,000 saved draws is used
+**exactly once**.
+
+### Result
+
+| segment | Motors 2025 | ElectricMotorMC mass | error |
+|---|---|---|---|
+| AB | 13.0470 kg | 13.0442 kg | **0.021%** |
+| CD | 27.5973 kg | 27.5912 kg | **0.022%** |
+| EF | 61.1874 kg | 61.1822 kg | **0.008%** |
+
+All four streams now sum to 1.0000. `MOTOR_RECON_TOL` was tightened from 0.03 to
+**0.005** to match — at 0.03 the guard would not have noticed NdFeB, which is 9%
+of motor mass, going wrong by a third.
+
+---
+
+## 7. Still open
 
 **Step 4 — the figures.** Rebuild the band from `joint_mc_stats.csv` and delete
 `_lognormal_from_band` entirely.

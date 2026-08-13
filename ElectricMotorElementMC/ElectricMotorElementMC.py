@@ -43,6 +43,7 @@ Output folders (siblings of this script):
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -104,6 +105,13 @@ ESTL_COLOR = "#607D8B"
 
 # ── NdFeB ────────────────────────────────────────────────────────────────────
 NDFEB_ELEMENTS = ["Nd", "Fe", "B", "Dy", "Tb", "Pr", "Co", "Al", "Cu", "Nb", "Ga"]
+
+# How far the DRAWN Fe balance (1 - sum of the other ten) may sit outside the
+# Fe range the NdFeB sheet itself reports, before it is worth warning about.
+# UNIT: mass fraction. The two are independent statements about the same alloy,
+# so a small gap is ordinary rounding in the published grade table; a large one
+# means the sheet's rows contradict each other and should be re-read.
+NDFEB_FE_TOL = 0.02
 NDFEB_COLOR    = "#8B4513"
 
 # Motor type tokens as they appear in histogram CSV filenames
@@ -192,8 +200,103 @@ def add_kde(ax, x: np.ndarray, color: str) -> None:
     ax.plot(grid, kde(grid), color=color, linewidth=2)
 
 
+# --------------------------------------------------------------------------
+# MATERIAL MASS INPUT
+#
+# This model splits a MATERIAL mass into ELEMENTS. The material mass comes from
+# ElectricMotorMC, and there are two ways to get it:
+#
+#   the draws      ElectricMotorMC/materials_samples_csv/*.npy
+#                  its actual 200,000 per-draw material masses
+#   a histogram    ElectricMotorMC/materials_histograms_csv/*.csv
+#                  those same draws binned into 50 bins and exported
+#
+# Until 2026-08-13 this model read the HISTOGRAM and resampled from it. That
+# discards information that exists on disk, and it showed: the reconstructed
+# motor composition missed ElectricMotorMC's own mass by up to 0.94%.
+#
+# WORSE, IT BROKE THE PAIRING BETWEEN MATERIALS. Each stream was resampled from
+# its own histogram independently, so "draw i" of copper and "draw i" of steel
+# came from two unrelated motors. A heavy motor is heavy in every material at
+# once; independent resampling destroys that, and every grand total formed by
+# summing streams inherited the error.
+#
+# Reading the .npy fixes both: row i is ONE simulated motor, and its copper,
+# electrical steel, NdFeB and cast steel masses all belong to it.
+# --------------------------------------------------------------------------
+
+MAT_SAMPLES_DIR = HERE.parent / "ElectricMotorMC" / "materials_samples_csv"
+
+# Which column of ElectricMotorMC's per-draw sample file each stream reads.
+# The stream keys are this model's internal names; the column names are
+# ElectricMotorMC's material names, listed in the companion .json.
+# NOTE cfsteel -> "Steel": ElectricMotorMC calls it Steel, this model calls the
+# same material Cast Fe Steel. Same quantity, two names.
+STREAM_MATERIAL_COL = {
+    "copper":  "mass_kg__Copper",
+    "esteel":  "mass_kg__ElectricalSteel",
+    "ndfeb":   "mass_kg__NdFeB",
+    "cfsteel": "mass_kg__Steel",
+}
+
+
+def load_material_draws(stem: str, stream: str, n: int) -> np.ndarray:
+    """ElectricMotorMC's OWN per-draw material mass, in kg. (n,)
+
+    Args:
+        stem:   the histogram stem this case was discovered under, e.g.
+                "hist_materialmass_CD_MediumDCMotors_metal_Steel". Only used to
+                recover the case; the histogram itself is not read.
+        stream: "copper" | "esteel" | "ndfeb" | "cfsteel".
+        n:      draws wanted. UNIT: draws.
+
+    Returns:
+        (n,) material mass. UNIT: kg.
+
+    THE FIRST n ROWS, NOT A RANDOM SUBSET. The draws are i.i.d., so the first n
+    are a valid sample -- and taking the SAME row indices for every stream is
+    what keeps a motor's copper and its steel belonging to the same motor. A
+    random subset per stream would silently reintroduce the pairing bug this
+    function exists to fix. Set N_SAMPLES to the full file length to use every
+    draw and resample nothing at all.
+    """
+    if stream not in STREAM_MATERIAL_COL:
+        raise KeyError(f"no material column mapped for stream {stream!r}")
+
+    # "hist_materialmass_<CASE>_<Material>" -> "<CASE>"
+    parts = stem.split("_")
+    case = "_".join(parts[2:-1])
+    npy = MAT_SAMPLES_DIR / f"materials_samples_{case}.npy"
+    js = npy.with_suffix(".json")
+    if not npy.exists() or not js.exists():
+        raise FileNotFoundError(
+            f"per-draw material samples not found for case {case!r}:\n"
+            f"  {npy}\n"
+            f"Run ElectricMotorMC.py first -- it writes these. This model no "
+            f"longer resamples from the exported histograms, because that loses "
+            f"the pairing between materials of the same motor.")
+
+    cols = json.load(open(js))["columns"]
+    want = STREAM_MATERIAL_COL[stream]
+    if want not in cols:
+        raise KeyError(f"{npy.name} has no column {want!r}; it has {cols}")
+
+    a = np.load(npy, mmap_mode="r")
+    if a.shape[0] < n:
+        raise ValueError(
+            f"{npy.name} holds {a.shape[0]:,} draws but N_SAMPLES is {n:,}. "
+            f"Lower N_SAMPLES or re-run ElectricMotorMC.py with more draws.")
+    return np.asarray(a[:n, cols.index(want)], dtype=float)
+
+
 def sample_from_histogram(hist_csv: Path, rng: np.random.Generator, n: int) -> np.ndarray:
-    """Inverse-CDF sampling from a histogram CSV."""
+    """Inverse-CDF sampling from a histogram CSV.
+
+    NO LONGER USED FOR MATERIAL MASS -- see load_material_draws above and the
+    note on why resampling a histogram was wrong here. Kept because it is a
+    correct implementation of what it says, and because reading a histogram is
+    still the only option for any input whose draws were never exported.
+    """
     df        = pd.read_csv(hist_csv)
     bin_left  = df["bin_left"].to_numpy(float)
     bin_right = df["bin_right"].to_numpy(float)
@@ -492,15 +595,32 @@ def sample_ndfeb_composition(
     n: int,
 ) -> Tuple[List[str], np.ndarray]:
     """
-    Weighted mean composition across NdFeB grades.
+    Weighted mean composition across NdFeB grades. Fe is the BALANCE element.
     Weights are normalised to sum=1.
     Returns (element_names, mean_fractions[n, n_elem]).
+
+    FE IS COMPUTED AS 1 - sum(others), NOT DRAWN. Fixed 2026-08-13.
+
+    Until then every element including Fe was drawn independently between its
+    own min and max, and nothing made the eleven fractions sum to 1. Measured
+    over the twelve cases the sum ran from 0.982 to 1.113, mean 1.041 -- so a
+    kilogram of magnet was turned into 1.041 kg of elements, and the error was
+    worst where NdFeB content is highest. The other three streams never had
+    this problem: Cast Fe Steel and Electrical Steel already treat Fe as the
+    balance, which is the pattern followed here.
+
+    This is the physically right constraint as well as the arithmetically right
+    one: NdFeB is Nd2Fe14B with substitutions, iron makes up the remainder by
+    definition, and the sheet's Fe row is a reported range rather than an
+    independent degree of freedom. The drawn balance is checked against that
+    reported range below.
     """
     total_w = sum(weights.values())
     norm_w  = {g: w / total_w for g, w in weights.items()}
 
-    n_elem = len(NDFEB_ELEMENTS)
-    acc    = np.zeros((n, n_elem), dtype=float)
+    others = [e for e in NDFEB_ELEMENTS if e != "Fe"]
+    acc    = np.zeros((n, len(others)), dtype=float)
+    fe_lo  = fe_hi = 0.0
 
     for grade, weight in norm_w.items():
         if grade not in grades:
@@ -508,11 +628,29 @@ def sample_ndfeb_composition(
                 f"NdFeB grade '{grade}' not found in NdFeB sheet. "
                 f"Available: {list(grades.keys())}"
             )
-        for e_idx, elem in enumerate(NDFEB_ELEMENTS):
+        for e_idx, elem in enumerate(others):
             lo, hi = grades[grade][elem]
             acc[:, e_idx] += weight * uniform(rng, lo, hi, n)
+        g_lo, g_hi = grades[grade]["Fe"]
+        fe_lo += weight * g_lo
+        fe_hi += weight * g_hi
 
-    return NDFEB_ELEMENTS, acc
+    fe = np.clip(1.0 - acc.sum(axis=1), 0.0, 1.0)
+
+    # The balance must land inside the range the sheet reports for Fe. If it
+    # does not, the non-Fe ranges and the Fe range disagree and the sheet needs
+    # looking at -- silently clamping would hide that.
+    if not (fe_lo - NDFEB_FE_TOL <= fe.mean() <= fe_hi + NDFEB_FE_TOL):
+        print(f"    WARNING: NdFeB balance Fe = {fe.mean():.4f} sits outside the "
+              f"sheet's weighted Fe range [{fe_lo:.4f}, {fe_hi:.4f}]. The non-Fe "
+              f"ranges and the Fe range in PermanentMagnetNdFeB disagree.")
+
+    # reassemble in the declared NDFEB_ELEMENTS order so downstream columns and
+    # figures are unchanged
+    col = {e: acc[:, i] for i, e in enumerate(others)}
+    col["Fe"] = fe
+    fractions = np.column_stack([col[e] for e in NDFEB_ELEMENTS])
+    return NDFEB_ELEMENTS, fractions
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -623,8 +761,10 @@ def process_stream(
 
         print(f"\n  [{title_prefix}] {label}")
 
-        # 1. Reconstruct mass samples from histogram
-        mat_mass_kg = sample_from_histogram(hist_csv, rng, N_SAMPLES)
+        # 1. ElectricMotorMC's OWN draws for this material -- not a resample of
+        #    its exported histogram. Row i is one motor in every stream, so a
+        #    heavy motor is heavy in all of its materials at once.
+        mat_mass_kg = load_material_draws(stem, stream, N_SAMPLES)
         print(f"    mass: mean={mat_mass_kg.mean():.4f} kg, std={mat_mass_kg.std():.4f} kg")
 
         # 2. Sample composition

@@ -102,11 +102,15 @@ TOTALMASS_ROW = "TotalMass"
 UNRESOLVED_MATERIALS = ["Aluminum", "Plastic"]
 
 # How far the reconstructed motor composition may sit from ElectricMotorMC's own
-# mass before it is treated as a defect. UNIT: fraction. The honest floor is the
-# element model resampling each material from a 50-bin histogram instead of the
-# original draws, which costs about 1% on EF. Set tighter and it will fail on
-# noise; set much looser and it stops catching a missing material stream.
-MOTOR_RECON_TOL = 0.03
+# mass before it is treated as a defect. UNIT: fraction.
+#
+# Measured error is now 0.008-0.022%, so this is ~20x headroom. It was 0.03
+# while the element model still resampled each material from a 50-bin histogram
+# and left NdFeB unnormalised; both were fixed 2026-08-13 and the tolerance was
+# tightened to match. Set tighter and it will fail on ordinary draw noise; set
+# looser and it stops catching a missing material stream -- at 0.03 it would no
+# longer notice NdFeB, which is 9% of motor mass, going wrong by a third.
+MOTOR_RECON_TOL = 0.005
 
 SEGMENTS = ["AB", "CD", "EF"]
 DOMAINS = ["Wiring", "Sensors", "PCB", "Motors"]
@@ -244,14 +248,17 @@ def motor_2025():
 
 # --------------------------------------------------------------- the domains
 
-def domain_masses(seg, st, rng, ctx):
+def domain_masses(seg, st, rng, ctx, row0):
     """Grams per vehicle for each domain, for ONE chunk of vehicles.
 
     Args:
         seg: "AB" | "CD" | "EF".
-        st:  VehicleState for this chunk -- the SAME cars in every domain.
-        rng: generator for this run's private draws.
-        ctx: the loaded models and factors, from build_context().
+        st:   VehicleState for this chunk -- the SAME cars in every domain.
+        rng:  generator for this run's private draws.
+        ctx:  the loaded models and factors, from build_context().
+        row0: index of this chunk's first vehicle within the whole run. Used to
+              walk the motor model's saved draws in step, so each is consumed
+              exactly once instead of being resampled.
 
     Returns:
         {domain: (m, n_years)} grams per vehicle.
@@ -283,8 +290,20 @@ def domain_masses(seg, st, rng, ctx):
     out["PCB"] = area * ctx["pcb_k"][seg]
 
     # ---- motors: 2025 element mass x this vehicle's growth trajectory
+    #
+    # EACH SAVED DRAW IS USED EXACTLY ONCE, walking the pool in step with the
+    # joint run rather than resampling it with replacement. Bootstrapping would
+    # be correct in distribution but it is still resampling: it adds noise that
+    # is not in the model and lets one motor stand in for several vehicles.
+    # Consuming the pool sequentially is exact, because these ARE the motor
+    # model's own 200,000 draws and the joint run is the same length.
     pool = ctx["motor_draws"][seg]
-    mass25 = pool[rng.integers(0, len(pool), size=m)]          # the model's own draws
+    if row0 + m > len(pool):
+        raise ValueError(
+            f"joint run wants motor draws [{row0}:{row0+m}] but the pool holds "
+            f"{len(pool):,}. Lower N_ITER to the pool size, or re-run "
+            f"ElectricMotorMC.py with at least N_ITER draws.")
+    mass25 = pool[row0:row0 + m]
     g = ctx["motor_growth"](m, seg, st)                        # (m, n_years), 1.0 at 2025
     out["Motors"] = ctx["motor_g25"][seg] * g * (mass25 / pool.mean())[:, None]
 
@@ -338,7 +357,7 @@ def run(n_iter=N_ITER, chunk=CHUNK, seed=SEED):
         while done < n_iter:
             m = min(chunk, n_iter - done)
             st = draw_vehicle_state(rng, m, YEARS, lidar_lag=lidar_lag)
-            dm = domain_masses(seg, st, rng, ctx)
+            dm = domain_masses(seg, st, rng, ctx, done)
             dm["Total"] = sum(dm[d] for d in DOMAINS)
 
             if accs is None:
