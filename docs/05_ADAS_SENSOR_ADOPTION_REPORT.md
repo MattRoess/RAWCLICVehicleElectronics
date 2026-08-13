@@ -392,10 +392,139 @@ Mode puts Europe at 21% around **2032–33**, a lag of ~7 years. **The lag itsel
 should be sampled**, not fixed: `LIDAR_EUROPE_LAG_Y ~ Normal(7, 3)`, so the
 China-follows hypothesis is testable rather than assumed.
 
-**Segment dependence — ASSUMPTION.** Apply the §4.2 offsets, but *weakly*: the
-BYD Seagull shows lidar entering at A-segment, so the premium-first assumption is
-much weaker for lidar than for tier. Suggested: **half** the segment offset used
-for Driver A.
+**Segment dependence — ASSUMPTION, and now CONTESTED. See §5.3a.** Apply the
+§4.2 offsets, but *weakly*: the BYD Seagull shows lidar entering at A-segment, so
+the premium-first assumption is much weaker for lidar than for tier. Suggested:
+**half** the segment offset used for Driver A.
+
+### 5.3a Contrary evidence — lidar may be concentrating in premium, not spreading
+
+**Added 2026-08-13**, from a market report supplied by the user
+(MarketsandMarkets, *Automotive LiDAR Market … Global Forecast to 2033*:
+USD 1.70 bn in 2026 → 11.26 bn by 2033, CAGR 31.0%).
+
+Two statements in it point the opposite way to §5.3:
+
+> "accelerating the shift of LiDAR deployment toward **premium vehicles** and
+> higher autonomy applications"
+
+> "Advances in imaging radar and AI-driven perception are increasing
+> competition, particularly in **cost-sensitive vehicle programs**"
+
+**THE REPORT STOPS IN 2033. The model runs to 2070.** So it can test the near
+term and says nothing whatever about the long term. Those two questions must be
+kept apart, and separating them changes the conclusion.
+
+#### The near term — the model already does what the report describes
+
+| | growth 2026 → 2033 |
+|---|---|
+| model, Europe equipped share — Min / **Mode** / Max | 13.3× / **7.5×** / 5.9× |
+| report, global revenue | 6.6× |
+| report, implied **units** if ASP falls 20% | 8.2× |
+| report, implied **units** if ASP falls 40% | 11.0× |
+
+The model's central case sits inside the range the report implies once falling
+ASP is accounted for. Not a calibration — the report is revenue, global, and
+China-weighted, while Driver B is penetration, European — but the two are the
+same order, which is the most that can be asked of a cross-check like this.
+
+And the model's near-term segment split is **already premium-concentrated**:
+
+| | 2030 | 2070 |
+|---|---|---|
+| EF ÷ AB | **1.95×** | 1.17× |
+
+The report says lidar is concentrating in premium while radar takes cost-
+sensitive programs. At 2030 the model has EF at roughly twice AB. **That is the
+same statement.** The report corroborates the near term rather than contradicting
+it.
+
+#### The long term — the report cannot speak to it
+
+What the model then does is *converge*: EF ÷ AB falls from 1.95× to 1.17× by
+2070. That is a claim that regulation, falling cost and accident reduction
+eventually democratise lidar down the segments — the same reasoning as Case HIGH
+in §5.2, and independent of anything in a 2033 forecast.
+
+**Extrapolating a 2026–2033 competitive dynamic to 2070 would be a mistake.**
+"Imaging radar is winning cost-sensitive programs" describes a market structure
+during a cost transition, not a structural law. The §5.3 concern stands as
+written: the segment offset is an ASSUMPTION, and this report neither confirms
+nor refutes it beyond 2033.
+
+**What the model currently implies**, lidar-equipped share of new sales:
+
+| | 2030 | 2040 | 2050 | 2070 |
+|---|---|---|---|---|
+| AB | 0.156 | 0.429 | 0.574 | **0.646** |
+| CD | 0.193 | 0.509 | 0.644 | 0.701 |
+| EF | 0.304 | 0.616 | 0.714 | 0.756 |
+
+**The model says 65% of A/B-segment cars carry lidar in 2070**, only 15% below
+EF. Whether that is too high is a question about **2070**, and the report cannot
+answer it. It is the point at which the long-term drivers take over from the
+current cost competition:
+
+| pushes lidar DOWN the segments | pushes it UP-market only |
+|---|---|
+| regulation — GSR-2 precedent, any future L3/L4 mandate | imaging radar keeps winning on cost |
+| cost decline — already 99.5% since 2017 | ~95% of supply is Chinese; tariffs or supply-security policy could throttle Europe |
+| accident reduction — the safety case that drove every previous mandate down-market | lidar stays a premium differentiator OEMs decline to commoditise |
+
+The model's Mode takes the left column and its Min the right; the 2070 band of
+**0.25 – 0.90** spans both. That is the correct treatment of a question this
+uncertain, and it is why no single number here should be quoted without its band.
+
+**Why the revenue figure cannot be used directly.** It is a *revenue* forecast,
+global, and China-dominated; Driver B is a *penetration* curve for Europe. Units
+grow faster than revenue because ASP is falling — the report says suppliers are
+being pushed to cut cost — so 6.6× revenue could be ~13× units. Converting it
+needs a price path and a global→Europe split, neither of which is in the source.
+On this project's scale the CAGR is **DERIVED at best**; the directional
+statements are the usable content, and they are vendor-adjacent.
+
+**What it would change if adopted — measured, 2026-08-13.**
+
+| | |
+|---|---|
+| lidar element mass per vehicle | **0.03–0.18 g** |
+| total electronics material per vehicle | 36,000–131,000 g |
+| lidar's share of it | **0.0001%** |
+| lidar's contribution to the total uncertainty band | **~0.0 points of 41–57%** (`tools/driver_sensitivity.py`) |
+
+**So: nothing, for material mass.** Halving AB lidar would move the AB total by
+about 0.05 g in 36,446 g. It is not detectable.
+
+**But a great deal for the lidar count itself**, which is the number anyone
+studying sensor content would actually quote: AB would fall from ~65% equipped
+to perhaps 25–30%.
+
+**One caveat on why the mass is so small,** because it is easy to misread as
+"lidar does not matter". This model counts the **sensing elements** — the laser
+diode array and photodetector array — not the lidar module. Its housing, optics
+and mounting are not in `07_`; its board is counted in the PCB domain and its
+wiring in the wiring domain. A physical lidar unit is several hundred grams. The
+0.18 g figure is the semiconductor content only, and that scope decision applies
+to every sensor in the model, not just this one.
+
+### Recommendation — no change
+
+**The near term is corroborated; the long term is untouched.** The report tests
+2026–2033, and over that window the model agrees with it on both growth rate
+(7.5× against an implied 6.6–11×) and on premium concentration (EF ≈ 2× AB).
+Beyond 2033 the report is silent, so it is not evidence for or against the
+convergence the model assumes.
+
+**The general rule this illustrates.** A forecast that ends in 2033 can validate
+a model's near term and must not be extrapolated into its long term. The
+temptation is strong precisely because the near-term agreement builds confidence
+— and that confidence does not transfer. Use short-horizon sources to check the
+years they cover, and say so explicitly when quoting them.
+
+§5.3's segment offset remains an **ASSUMPTION**, exactly as it was. What has
+changed is that it now has a corroborated near-term anchor and an explicitly
+labelled long-term uncertainty, rather than being uniformly unsupported.
 
 ### 5.4 Lidar units per equipped vehicle — ASSUMPTION
 

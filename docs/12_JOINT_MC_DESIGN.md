@@ -509,4 +509,5 @@ Deliberately left out.
 
 **Carried over, not addressed here:** `LIDAR_H4_FLOOR = 0.80` (EF lidar still
 ~6× above observation); Driver C multipliers (1.0/1.4/2.0) unsourced; the `01_`
-relabel not propagated to `SensorElementsMC.py` and the PCB models.
+relabel — CLOSED 2026-08-13, the chain was already current (verified by
+regenerating: `11_`/`12_` byte-identical, `SensorElementsMC` zero difference).
