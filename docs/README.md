@@ -74,6 +74,7 @@ Read in this order — each one depends on the last.
 | | | |
 |---|---|---|
 | **11** | [`11_BRAND_ORIGIN_DESIGN.md`](11_BRAND_ORIGIN_DESIGN.md) | Driver E — brand origin. **Designed, never built.** Kept because the reasoning is still valid |
+| **13** | [`13_OPTION_BUNDLING_DESIGN.md`](13_OPTION_BUNDLING_DESIGN.md) | Driver G — option bundling. **Designed, measured, and deliberately NOT built** — §9 shows the whole assumption is worth 3–17 points on a band already 26–120% wide. Kept as the record of why |
 
 ---
 

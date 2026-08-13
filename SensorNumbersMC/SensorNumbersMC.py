@@ -625,6 +625,16 @@ def make_sensor_chunk(df, segment, years=YEARS):
         # set and 70% carry none. Multiplying every car by 0.3 instead gives
         # each of them 2.4-3.6 sensors, a car that does not exist, and collapses
         # the band exactly as the tier average did.
+        #
+        # ONE UNIFORM PER COMPONENT, SO COMPONENTS ARE INDEPENDENT OF EACH OTHER.
+        # That is a known simplification, measured and deliberately kept: real
+        # cars are sold in packages, so surround cameras and the parking ECU
+        # arrive together, and here they need not. It makes the ADAS band
+        # NARROWER than reality by 3-17 percentage points, on bands already
+        # 26-120% wide; the mean is unaffected. Bundling them was designed,
+        # measured and rejected as changing no conclusion --
+        # docs/13_OPTION_BUNDLING_DESIGN.md section 9. Revisit if sensor
+        # composition ever stops being frozen at 2025.
         u_pres = np.random.uniform(size=(len(adas_idx), n))
 
         out = {k: np.repeat(s0[k][:, None], n_years, axis=1) for k in keys}

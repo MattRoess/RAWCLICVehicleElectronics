@@ -188,7 +188,17 @@ equivalent exempt those rows rather than widening tolerance.
    ECU-attributed view that omits window, mirror and wiper motors entirely —
    rename it to say so, or stop generating it.
 5. **P2 and P4** unwritten.
-6. **`BevWiring._shift_shares`** duplicates the shared module.
+6. ~~**`BevWiring._shift_shares`** duplicates the shared module.~~ **CLOSED
+   2026-08-13** — deleted and aliased to `drivers.shift_shares`. Verified: 0 of
+   20,808 output rows change.
+7. **Optional ADAS components are drawn independently of one another.** Real
+   cars are sold in trim levels and packages, so components that in reality
+   arrive together — surround cameras with the parking ECU, corner radars with
+   the domain controller — are here allowed to arrive separately. This makes the
+   ADAS band **narrower than reality by 3–17 percentage points**, measured
+   against the fully-bundled alternative. It does **not** affect the mean, and
+   it is not visible in the total per vehicle. Measured and deliberately not
+   modelled: `13_OPTION_BUNDLING_DESIGN.md` §9.
 
 ---
 

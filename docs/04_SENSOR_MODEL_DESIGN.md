@@ -276,6 +276,27 @@ the rewrite can be verified before anything starts moving.
 
 ## 10. Still open
 
+00. **Optional ADAS components are drawn INDEPENDENTLY of one another.**
+    Measured, and deliberately not modelled — `13_OPTION_BUNDLING_DESIGN.md` §9.
+
+    Since 2026-08-13 each ADAS component's presence is a per-vehicle Bernoulli,
+    which is right: presence 0.3 means 30% of cars carry it and 70% carry none.
+    But each of the twelve components gets **its own** coin flip. Real cars are
+    sold in trim levels and packages, so a car can here end up with surround
+    cameras but no parking ECU, or corner radars with no domain controller to
+    read them. Those cars are not sold.
+
+    **Effect, measured on the ADAS total, 60,000 draws:** the band is narrower
+    than the fully-bundled alternative by **3–17 percentage points**, on bands
+    that are already 26–120% wide. The **mean is unaffected** — only the
+    correlation changes. On the total per vehicle it is invisible, because
+    sensors carry ~0% of that variance.
+
+    **Not modelled** because it changes no conclusion and needs a package-mix
+    weight nobody can source. It would become worth revisiting if sensor
+    composition stopped being frozen at 2025, since that is the main reason
+    sensors contribute so little variance.
+
 0. **Battery temperature maxima — RESOLVED 2026-08-05.** One row
    (`Traction battery pack / temperature sensor`) outweighed all 32 other
    temperature rows combined: 60% of AB's total, 51–54% of CD's. Per-module
