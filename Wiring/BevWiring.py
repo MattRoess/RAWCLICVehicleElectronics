@@ -106,7 +106,7 @@ SCENARIO_FILE = DATA_DIR / "20_scenarios.xlsx"
 # Volvo's EX90 carries 31 sensors at L2, BMW's i7 carried 25 at L3, and certified
 # L3 is being WITHDRAWN in Europe while sensor content keeps rising -- so keying
 # sensor count on the certificate got the near-term trend backwards.
-# Full argument: docs/ADAS_Sensor_Adoption_Report_2025_2070.md
+# Full argument: docs/05_ADAS_SENSOR_ADOPTION_REPORT.md
 #
 # WHY IT WAS DELETED RATHER THAN KEPT AS A FALLBACK: it had not driven the answer
 # since 2026-08-06, but it still LOOKED live, and that caused a real error -- the
@@ -291,6 +291,7 @@ from drivers import (monotone_curve as _monotone_curve,   # noqa: E402
                      load_800v_share,
                      load_architecture_shares,
                      load_tier_shares)
+from vehicle_state import pick_from_uniform as _pick_from_uniform  # noqa: E402
 
 
 def _read_active_scenario() -> str:
@@ -311,7 +312,7 @@ def _load_tier_axis(years) -> dict:
     B  lidar penetration sheet Lidar             -> (3, n_years) Min/Mode/Max
     C  scenario          sheet Scenarios         -> multiplier curve per scenario
 
-    Every number traces to docs/ADAS_Sensor_Adoption_Report_2025_2070.md;
+    Every number traces to docs/05_ADAS_SENSOR_ADOPTION_REPORT.md;
     the sheets carry the section references. Anchors are read through the same
     PCHIP curve as every other share table here, so adding or deleting anchor
     years in Excel needs no code change.
@@ -500,14 +501,31 @@ class MCResult:
 
 
 def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
-                    start_year=START_YEAR, end_year=END_YEAR) -> MCResult:
+                    start_year=START_YEAR, end_year=END_YEAR,
+                    state=None) -> MCResult:
     """Simulate n_iter vehicles and KEEP EVERY DRAW.
 
     Memory is (n_iter x 28 categories x 51 years) float64 per metric per
     segment -- about 34 MB at 3000 iterations but 2.3 GB at 200,000, times
     twelve arrays. Use this for exploration and plotting up to ~20,000
     iterations; above that use run_accumulated(), which keeps only statistics.
+
+    Args:
+        state: optional VehicleState (tools/vehicle_state.py). When given, the
+               drivers this model SHARES with the sensor, PCB and motor models
+               -- architecture, ADAS tier, 800 V, scenario, lidar -- are taken
+               from it instead of being drawn here, so the same simulated car
+               appears in every domain and the four masses can be added draw by
+               draw. Everything private to wiring (gauge, SDV depth, the
+               car-to-car factors, the height adder) is still drawn from `rng`.
+
+               When None -- the default and every existing caller -- this
+               function draws exactly what it always drew, in the same order
+               from the same generator, so all standalone outputs stay
+               reproducible from `seed` alone.
     """
+    if state is not None and len(state) != n_iter:
+        raise ValueError(f"state carries {len(state)} vehicles, n_iter={n_iter}")
     rng = np.random.default_rng(seed)
     years = np.arange(start_year, end_year + 1)
     inp = load_inputs(years)
@@ -530,8 +548,11 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
         arch_sh /= np.maximum(arch_sh.sum(axis=0, keepdims=True), 1e-12)
 
         # ---- discrete states
-        u_arch = rng.random(n_iter)
-        d_arch = rng.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=n_iter)
+        # SHARED with the PCB model when a state is supplied: the same car must
+        # be the same architecture in its harness and on its boards.
+        u_arch = rng.random(n_iter) if state is None else state.u_arch
+        d_arch = (rng.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=n_iter)
+                  if state is None else state.d_arch)
         arch_i = _shift_shares(arch_sh, years, d_arch)                # (3,n_iter,n_years)
         st_arch = (u_arch[None, :, None] > np.cumsum(arch_i, axis=0)).sum(axis=0)
 
@@ -565,7 +586,7 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
                   * fac * var)
 
         # ---- ADAS/sensor categories: driven by SENSOR COUNT, not architecture
-        cnt = _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch)
+        cnt = _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch, state)
         # scale so the ADAS block reproduces its 2025 baseline total
         adas_base = inp.length[seg][is_adas].sum() * SEGMENT_LENGTH_CALIBRATION[seg]
         # ENSEMBLE mean, not per-iteration: dividing each iteration by its own
@@ -585,7 +606,9 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
                                np.maximum(inp.gauge_max, inp.gauge_min + 1e-9)[None, :],
                                size=(n_iter, n_cat))
         cu_per_m = np.repeat((gauge * RHO_CU_G_PER_CM3)[:, :, None], n_years, axis=2)
-        u_volt = rng.random(n_iter)
+        # SHARED with the sensor model: one car has one battery voltage, and it
+        # drives both the HV conductor sizing here and the battery-sensing count.
+        u_volt = rng.random(n_iter) if state is None else state.u_volt
         is800 = (u_volt[:, None] < inp.volt[seg][None, :])             # discrete, per year
         red = rng.triangular(*HV_800V_CU_REDUCTION_TRI, size=n_iter)[:, None]
         hv_scale = 1.0 - red * is800
@@ -613,7 +636,7 @@ def run_monte_carlo(n_iter=N_ITER, seed=RANDOM_SEED,
                     inp.codes, inp.groups, per_category, totals, diag)
 
 
-def _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch):
+def _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch, state=None):
     """ADAS wire metres per vehicle, from the hardware-tier axis (drivers A/B/C).
 
     Args:
@@ -664,19 +687,24 @@ def _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch):
     n_years = len(years)
 
     # --- A: discrete tier, comonotonic across years, with per-iteration timing
+    # SHARED with the sensor and PCB models when a state is supplied.
     shares = inp.tier_shares[seg]                                  # (n_tiers, n_years)
-    d_tier = rng.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=n_iter)
+    d_tier = (rng.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=n_iter)
+              if state is None else state.d_tier)
     sh_i = _shift_shares(shares, years, d_tier)                    # (n_tiers,n_iter,n_years)
-    u_tier = rng.random(n_iter)
+    u_tier = rng.random(n_iter) if state is None else state.u_tier
     st_tier = (u_tier[None, :, None] > np.cumsum(sh_i, axis=0)).sum(axis=0)
 
     # --- B: lidar equipped, per iteration and year
-    w = rng.random(n_iter)[:, None]
+    # SHARED with the sensor model: one car carries one lidar or none, and the
+    # sensor model must count the same one this model runs wire to.
+    w = (rng.random(n_iter) if state is None else state.u_lidar_band)[:, None]
     band = np.where(w < 1 / 3, inp.lidar[0][None, :],
                     np.where(w < 2 / 3, inp.lidar[1][None, :], inp.lidar[2][None, :]))
     lag_mean, lag_sd = inp.lidar_lag
     # the table already embeds the mean lag, so shift by the DEVIATION from it
-    d_lidar = rng.normal(lag_mean, lag_sd, size=n_iter) - lag_mean
+    d_lidar = (rng.normal(lag_mean, lag_sd, size=n_iter) - lag_mean
+               if state is None else state.d_lidar_lag)
     lid_share = np.empty((n_iter, n_years))
     for i in range(n_iter):
         lid_share[i] = np.interp(years - d_lidar[i], years, band[i])
@@ -684,8 +712,13 @@ def _adas_metres_tier(rng, inp, seg, years, n_iter, met, st_arch):
     equipped = (rng.random(n_iter)[:, None] < lid_share).astype(float)
 
     # --- C: scenario multiplier
+    # SHARED with the motor model: one car lives in one world. Derived from a
+    # stored uniform rather than rng.choice, because rng.choice consumes the
+    # generator and two models would then disagree about the same vehicle.
     if inp.scen_active == "SAMPLE":
-        pick = rng.choice(len(inp.scen_names), size=n_iter, p=inp.scen_w)
+        pick = (rng.choice(len(inp.scen_names), size=n_iter, p=inp.scen_w)
+                if state is None
+                else _pick_from_uniform(state.u_scen, inp.scen_w))
     else:
         pick = np.full(n_iter, inp.scen_names.index(inp.scen_active))
     mult_tab = np.vstack([inp.scen_mult[s] for s in inp.scen_names])  # (n_scen,n_years)

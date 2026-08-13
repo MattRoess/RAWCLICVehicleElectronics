@@ -7,7 +7,7 @@ diverging.
 Written 2026-08-04. Revised 2026-08-05.
 
 > **SUPERSEDED IN PART.** The concrete instruction set now lives in
-> **`../docs/ADAS_Sensor_Adoption_Report_2025_2070.md` §6**, with the
+> **`../docs/05_ADAS_SENSOR_ADOPTION_REPORT.md` §6**, with the
 > numbers in **`../Data/19_ADAS_sensor_adoption.xlsx`** sheet
 > `Presence_per_Tier`. Two things changed since this document was written:
 >

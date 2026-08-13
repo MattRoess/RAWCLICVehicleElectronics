@@ -257,7 +257,7 @@ PENETRATION_FILE = DATA_DIR / '18_BEV_technology_penetration.xlsx'
 UPLIFT_VOLTAGE_TRI = (1.7, 2.1, 2.5)
 # Temperature: per MODULE, not per series element. Floor 1.0 = module count
 # unchanged, just rearranged (cell-to-pack designs remove modules entirely);
-# ceiling 1.9 = modules follow series count. docs/SENSOR_MODEL_DESIGN.md 3.4.
+# ceiling 1.9 = modules follow series count. docs/04_SENSOR_MODEL_DESIGN.md 3.4.
 UPLIFT_TEMPERATURE_TRI = (1.0, 1.4, 1.9)
 
 # The only two rows the voltage driver touches. Everything else -- HVAC, cabin,
@@ -277,6 +277,9 @@ sys.path.insert(0, str(BASE_DIR / "tools"))
 from drivers import (monotone_curve as _monotone_curve,      # noqa: E402
                      load_800v_share,
                      load_presence_per_tier as _load_presence_shared,
+                     load_presence_matrix, load_lidar_bands, load_tier_shares,
+                     draw_tier_state, draw_lidar_share, pick_at_tier,
+                     TRANSITION_TIMING_SPREAD_Y, TIERS,
                      LIDAR_H4_FLOOR)
 
 
@@ -328,12 +331,33 @@ print("  presence at {} (EF): ".format(BASE_YEAR) + ", ".join(
     f"{c.split('/')[0].strip()[:18]} {PRESENCE_TIER[c]['EF'][_i25]:.2f}"
     for c in ['Front ADAS camera', 'Side / mirror cameras', LIDAR_COMPONENT]))
 
+# ---------------------------------------------------------------------------
+# THE SAME AXIS, UNMIXED -- what the Monte Carlo actually draws from.
+#
+# PRESENCE_TIER above is presence ALREADY AVERAGED over tiers. It is the right
+# thing to print and to plot, and the WRONG thing to hand to a draw: it gives
+# every simulated vehicle 0.62 of a lidar instead of giving 62% of vehicles one
+# lidar and the rest none. Until 2026-08-13 this model did exactly that, so its
+# means were right and its BAND was far too narrow -- the same defect that
+# caused generation 4 of the wiring model to be replaced.
+#
+# PRESENCE_MAT is presence given the vehicle IS that tier; the model draws a
+# discrete tier per vehicle and reads it here. BevWiring has drawn its tier
+# this way since 2026-08-05; these are the shared implementations, so the two
+# models now sample ONE axis rather than two variants of it.
+# ---------------------------------------------------------------------------
+PRESENCE_MAT, PRESENCE_LIDAR_GOV = load_presence_matrix(YEARS)
+TIER_SHARES = load_tier_shares(YEARS)
+LIDAR_BANDS, LIDAR_LAG = load_lidar_bands(YEARS)
+print(f"  unmixed presence matrix: {len(PRESENCE_MAT)} components x "
+      f"{len(TIERS)} tiers; lidar lag {LIDAR_LAG[0]:.1f} +/- {LIDAR_LAG[1]:.1f} y")
+
 
 # ----------------------------------------------------------------------------
 # CHUNKED ACCUMULATION
 #
 # WHY THIS EXISTS. This script currently has no time axis. Adding one (step 4 of
-# docs/SENSOR_MODEL_DESIGN.md) multiplies the draw matrix by the number of years:
+# docs/04_SENSOR_MODEL_DESIGN.md) multiplies the draw matrix by the number of years:
 #
 #     192 rows x 200,000 draws x  1 year  x 8 bytes x 3 segments =  0.9 GB   ok
 #     192 rows x 200,000 draws x 51 years x 8 bytes x 3 segments = 47.0 GB   impossible
@@ -418,15 +442,40 @@ def _adas_row_map(df, adas_idx):
 
 
 def apply_adas_tier_presence(df, draws, segment, year=BASE_YEAR):
-    """Scale unscaled ADAS rows by their composed tier presence at `year`.
+    """Scale unscaled ADAS rows by EACH VEHICLE'S OWN tier presence at `year`.
 
-    For the full-draw path. The accumulator applies this per year internally.
+    For the full-draw path -- the figures, the detailed CSV, the raw
+    distributions and the sensitivity analysis. The accumulator applies the
+    identical construction per year internally; both must agree or the figures
+    describe a different fleet from the statistics.
+
+    A discrete tier is drawn per vehicle, not the fleet-average presence. See
+    the note above PRESENCE_MAT for why the average is wrong here.
+
     Mutates and returns `draws`.
     """
     yi = int(np.searchsorted(YEARS, year))
     idx = np.flatnonzero((df['Domain'] == ADAS_DOMAIN).to_numpy())
     comps = df['Component'].to_numpy()[idx]
-    pres = np.array([PRESENCE_TIER[c][segment][yi] for c in comps])[:, None]
+    n = draws.shape[1]
+
+    st_tier = draw_tier_state(
+        np.random.uniform(size=n),
+        np.random.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=n),
+        TIER_SHARES[segment], YEARS)
+    lid_share = draw_lidar_share(
+        np.random.uniform(size=n),
+        np.random.normal(*LIDAR_LAG, size=n) - LIDAR_LAG[0],
+        LIDAR_BANDS, YEARS)
+
+    tt = st_tier[:, yi]
+    r = np.arange(len(idx))[:, None]
+    p = np.stack([PRESENCE_MAT[c] for c in comps])[r, tt[None, :], yi]
+    gov = np.stack([PRESENCE_LIDAR_GOV[c] for c in comps])[r, tt[None, :]]
+    if gov.any():
+        p = np.where(gov, np.maximum(lid_share[:, yi][None, :], p), p)
+    pres = (np.random.uniform(size=(len(idx), n)) < p).astype(float)
+
     draws[idx, :] = draws[idx, :] * pres
     return draws
 
@@ -465,11 +514,20 @@ def _series_of(df, draws):
     return out
 
 
-def run_accumulated(df, segment, n_iter, years=YEARS, chunk=CHUNK_ITER, verbose=True):
-    """Simulate n_iter draws across every year, keeping only statistics.
+def make_sensor_chunk(df, segment, years=YEARS):
+    """Build the per-chunk draw function for one segment.
 
-    Returns {key: Accumulator}, each holding one series per year. Memory is
-    independent of BOTH n_iter and the number of years.
+    Returns:
+        (chunk, keys) where chunk(n, state=None) -> {key: (n, n_years)} of
+        per-draw sensor counts, and keys is the series order.
+
+    WHY THIS IS A FACTORY. The per-segment setup below -- row lookups, the
+    stacked presence matrix -- is the same for every chunk, so it is done once
+    and closed over. Exposing the chunk function itself (rather than burying it
+    inside run_accumulated) is what lets the joint Monte Carlo in
+    tools/mc_composition.py draw ONE chunk of vehicles and hand the SAME cars to
+    every other model. Without that, sensor mass and wiring mass could not be
+    added draw by draw.
 
     WHY THIS IS CHEAP. Only 2 of the 192 rows depend on the year -- the battery
     pack's voltage and temperature sensing. Everything else is voltage
@@ -498,13 +556,39 @@ def run_accumulated(df, segment, n_iter, years=YEARS, chunk=CHUNK_ITER, verbose=
     adas_key_rows = _adas_row_map(df, adas_idx)
     adas_domain_key = ('domain', ADAS_DOMAIN)
 
-    def chunk_series(n):
+    # Per-tier presence for the ADAS rows, stacked once so the per-year loop is
+    # a fancy-index rather than a dict lookup per component.
+    #   pres_arr (n_adas, n_tiers, n_years)  presence GIVEN the vehicle is that
+    #                                        tier; in a lidar-governed cell it
+    #                                        is the FLOOR, not the share
+    #   gov_arr  (n_adas, n_tiers)           which cells Driver B governs
+    pres_arr = np.stack([PRESENCE_MAT[c] for c in adas_comp])
+    gov_arr = np.stack([PRESENCE_LIDAR_GOV[c] for c in adas_comp])
+    r_adas = np.arange(len(adas_idx))[:, None]
+
+    def chunk_series(n, state=None):
         """Yield {key: (n, n_years)} for one chunk.
 
-        Two drivers act, on disjoint row sets:
-          ADAS rows      -> tier presence, drawn unscaled then scaled per year
+        Args:
+            state: optional VehicleState. When given, the drivers this model
+                   SHARES with the wiring and PCB models -- ADAS tier, 800 V,
+                   lidar -- come from it, so the same simulated car appears in
+                   every domain. Everything private to the sensor model (the
+                   count within each row's min-max, the per-component fitted
+                   flag, the 800 V uplift factor) is still drawn here.
+                   When None, this draws exactly what it always drew.
+
+        Three drivers act, on disjoint row sets:
+          ADAS rows      -> DISCRETE hardware tier per vehicle, plus Driver B
+                            for lidar; drawn unscaled then scaled per year
           battery rows   -> 800V uplift, applied as a delta per year
         Everything else is year-independent and drawn once.
+
+        THE TIER IS DRAWN, NOT AVERAGED. One uniform per vehicle held across
+        every year, plus that vehicle's own transition timing offset, so a car
+        is ONE hardware tier on ONE timeline for its whole life. The previous
+        version multiplied every vehicle by the fleet-average presence, which
+        reproduces the mean and destroys the band.
         """
         base = run_batch_simulation(df, segment, n, unscaled_mask=adas_mask)
 
@@ -514,13 +598,46 @@ def run_accumulated(df, segment, n_iter, years=YEARS, chunk=CHUNK_ITER, verbose=
         s0 = _series_of(df, non_adas)
         del non_adas
 
-        u_volt = np.random.uniform(size=n)                   # ONE per vehicle
+        # SHARED with the wiring model when a state is supplied.
+        u_volt = (np.random.uniform(size=n) if state is None
+                  else state.u_volt)                       # ONE per vehicle
         upl = {st: np.random.triangular(*BATTERY_ROWS[st], size=n) for st in BATTERY_ROWS}
+
+        # --- per-vehicle ADAS state, every draw held across ALL years --------
+        # tier   which hardware tier this vehicle is, given its own timing
+        # lidar  Driver B: which band it lives in and how far behind China
+        # Both SHARED with the wiring model: the car this model counts sensors
+        # for must be the car that model runs wire to.
+        st_tier = draw_tier_state(
+            np.random.uniform(size=n) if state is None else state.u_tier,
+            (np.random.normal(0.0, TRANSITION_TIMING_SPREAD_Y, size=n)
+             if state is None else state.d_tier),
+            TIER_SHARES[segment], YEARS)                              # (n,n_years)
+        lid_share = draw_lidar_share(
+            np.random.uniform(size=n) if state is None else state.u_lidar_band,
+            (np.random.normal(*LIDAR_LAG, size=n) - LIDAR_LAG[0]
+             if state is None else state.d_lidar_lag),
+            LIDAR_BANDS, YEARS)                                       # (n,n_years)
+        # FITTED OR NOT, PER COMPONENT. One uniform per (component, vehicle),
+        # held across every year. Presence is a fraction of VEHICLES -- 04_
+        # section 3: "what fraction of vehicles in this segment carry this
+        # component" -- so 0.3 means 30% of cars carry the full 8-12 ultrasonic
+        # set and 70% carry none. Multiplying every car by 0.3 instead gives
+        # each of them 2.4-3.6 sensors, a car that does not exist, and collapses
+        # the band exactly as the tier average did.
+        u_pres = np.random.uniform(size=(len(adas_idx), n))
 
         out = {k: np.repeat(s0[k][:, None], n_years, axis=1) for k in keys}
         for yi in range(n_years):
-            # --- ADAS: scale each unscaled row by its composed presence
-            pres = np.array([PRESENCE_TIER[c][segment][yi] for c in adas_comp])[:, None]
+            # --- ADAS: is THIS component fitted to THIS vehicle, this year?
+            tt = st_tier[:, yi]                                       # (n,)
+            p = pres_arr[r_adas, tt[None, :], yi]                     # (n_adas,n)
+            gov = gov_arr[r_adas, tt[None, :]]                        # (n_adas,n)
+            if gov.any():
+                # Driver B cell: the tier contributes only a FLOOR, the vehicle's
+                # own sampled lidar share does the rest.
+                p = np.where(gov, np.maximum(lid_share[:, yi][None, :], p), p)
+            pres = (u_pres < p).astype(float)
             adas_scaled = base[adas_idx, :] * pres
             a_tot = adas_scaled.sum(axis=0)
             for k, local_rows in adas_key_rows.items():
@@ -539,6 +656,23 @@ def run_accumulated(df, segment, n_iter, years=YEARS, chunk=CHUNK_ITER, verbose=
             out[hv_domain_key][:, yi] += d_tot
             out['total'][:, yi] += d_tot
         return out
+
+    return chunk_series, keys
+
+
+def run_accumulated(df, segment, n_iter, years=YEARS, chunk=CHUNK_ITER,
+                    verbose=True):
+    """Simulate n_iter draws across every year, keeping only statistics.
+
+    Returns {key: Accumulator}, each holding one series per year. Memory is
+    independent of BOTH n_iter and the number of years.
+
+    Draws its own vehicles. The joint Monte Carlo does not come through here --
+    it calls make_sensor_chunk directly so it can hand the same cars to every
+    model; see tools/mc_composition.py.
+    """
+    n_years = len(years)
+    chunk_series, keys = make_sensor_chunk(df, segment, years)
 
     if verbose:
         print(f"  pilot {PILOT_ITER:,} draws to set accumulator ranges "
@@ -583,977 +717,991 @@ def stats_from_accumulator(acc, yi=None):
     }
 
 
-all_segment_draws = {}       # segment -> (n_rows, ndraws) matrix, row order == merged row order
-all_segment_results = {}     # segment -> dict: sensor_type -> 1D array (ndraws,), plus 'total'
-all_segment_accs = {}        # segment -> {key: Accumulator}  -- the statistics path
+# --------------------------------------------------------------------------
+# LIBRARY / SCRIPT SPLIT
+#
+# True only when this file is run directly. tools/mc_composition.py imports this
+# module as a LIBRARY -- for its loaded inputs and its per-draw chunk function --
+# so that the joint Monte Carlo can hand the SAME simulated cars to every model.
+# Importing must therefore NOT trigger the 200,000-draw run, the figures or the
+# CSV exports; those sections are wrapped in `if _RUN:`.
+#
+# Everything a library caller needs is defined ABOVE the first guarded section.
+# --------------------------------------------------------------------------
+_RUN = __name__ == "__main__"
 
-for segment in segments:
+if _RUN:
+    all_segment_draws = {}       # segment -> (n_rows, ndraws) matrix, row order == merged row order
+    all_segment_results = {}     # segment -> dict: sensor_type -> 1D array (ndraws,), plus 'total'
+    all_segment_accs = {}        # segment -> {key: Accumulator}  -- the statistics path
+
+    for segment in segments:
+        print("\n" + "="*70)
+        print(f"RUNNING MONTE CARLO SIMULATION FOR {segment} SEGMENT")
+        print("="*70)
+        print(f"Statistics : {N_ITER_STATS:,} draws via the accumulator "
+              f"(memory independent of this)")
+        print(f"Full-draw  : {N_ITER_RAW:,} draws kept, for figures and raw CSVs")
+        print(f"Number of (Domain, Component, SensorType) rows: {len(merged)}\n")
+
+        # --- statistics path: chunked, memory independent of the draw count
+        all_segment_accs[segment] = run_accumulated(merged, segment, N_ITER_STATS)
+
+        # --- full-draw path: needed by the figures, the detailed CSV, the raw
+        #     distributions and the sensitivity analysis, none of which can be
+        #     rebuilt from histograms. THIS is what costs memory; step 4 caps it.
+        # The full-draw path describes a vehicle at BASE_YEAR, so it needs the SAME
+        # drivers the accumulator applies. Without them, every figure and raw CSV
+        # would silently show an all-400V, frozen-2025-ADAS vehicle. V14 compares
+        # the two paths at BASE_YEAR and fails loudly if either is missed -- it
+        # already caught exactly this once.
+        _adas_mask = (merged['Domain'] == ADAS_DOMAIN).to_numpy()
+        draws = run_batch_simulation(merged, segment, N_ITER_RAW,
+                                     unscaled_mask=_adas_mask)
+        draws = apply_adas_tier_presence(merged, draws, segment, BASE_YEAR)
+        draws = apply_voltage_uplift(merged, draws, segment, BASE_YEAR)
+        all_segment_draws[segment] = draws
+
+        results = {}
+        for st in sensor_types:
+            idxs = merged.loc[merged['SensorType'] == st, '_row_idx'].to_numpy()
+            results[st] = draws[idxs, :].sum(axis=0)
+        results['total'] = draws.sum(axis=0)
+
+        all_segment_results[segment] = results
+        print(f"{segment} Simulation complete!")
+
+
+    # ============================================================================
+    # CALCULATE STATISTICS FOR ALL SEGMENTS (per combined SensorType + Total)
+    # ============================================================================
+
+    def approx_mode(x, bins=200):
+        """Approximate mode for continuous data using the highest-count histogram bin."""
+        counts, edges = np.histogram(x, bins=bins)
+        i = np.argmax(counts)
+        return 0.5 * (edges[i] + edges[i + 1])
+
+
+    all_stats = {}
+    v14 = []          # (segment, key, accumulator value, full-draw value) for the check below
+
+    for segment in segments:
+        results = all_segment_results[segment]
+        accs = all_segment_accs[segment]
+        stats = {}
+
+        for key, values in results.items():
+            # STATISTICS COME FROM THE ACCUMULATOR (N_ITER_STATS draws, memory
+            # independent). The full-draw values are computed alongside only to
+            # verify the port -- see the V14 table printed after this loop.
+            stats[key] = stats_from_accumulator(accs[key])
+
+            full = {
+                'mean': np.mean(values),
+                'mode': approx_mode(values, bins=200),
+                'std': np.std(values),
+                'p025': np.percentile(values, 2.5),
+                'p50': np.percentile(values, 50),
+                'p975': np.percentile(values, 97.5),
+            }
+            for m in ('mean', 'std', 'p025', 'p50', 'p975'):
+                v14.append((segment, key, m, stats[key][m], full[m]))
+
+        all_stats[segment] = stats
+
+        print("="*70)
+        print(f"MONTE CARLO SIMULATION RESULTS - {segment} SEGMENT")
+        print("="*70)
+
+        # Print Total first, then each sensor type
+        for metric in ['total'] + sensor_types:
+            values = stats[metric]
+            label = 'TOTAL (all sensors)' if metric == 'total' else metric
+            print(f"\n{label}:")
+            print(f"  Mean:   {values['mean']:>10.2f}")
+            print(f"  Mode:   {values['mode']:>10.2f}")
+            print(f"  Median: {values['p50']:>10.2f}")
+            print(f"  Std:    {values['std']:>10.2f}")
+            print(f"  Min:    {values['min']:>10.2f}")
+            print(f"  P025:   {values['p025']:>10.2f}")
+            print(f"  P25:    {values['p25']:>10.2f}")
+            print(f"  P75:    {values['p75']:>10.2f}")
+            print(f"  P975:   {values['p975']:>10.2f}")
+            print(f"  Max:    {values['max']:>10.2f}")
+
+
+    # ============================================================================
+    # V14 -- DOES THE ACCUMULATOR REPRODUCE THE FULL-DRAW RESULT?
+    #
+    # The whole point of step 3: the port must not change the answer. Tolerance is
+    # 3%, the project's self-consistency noise floor (19_ sheet Uncertainty) -- a
+    # single source disagrees with itself by 2.8%, so demanding better of a
+    # statistical estimator would be demanding it reproduce noise.
+    # ============================================================================
+
+    V14_TOL = 0.03
+
     print("\n" + "="*70)
-    print(f"RUNNING MONTE CARLO SIMULATION FOR {segment} SEGMENT")
+    print("V14 -- ACCUMULATOR vs FULL DRAW")
     print("="*70)
-    print(f"Statistics : {N_ITER_STATS:,} draws via the accumulator "
-          f"(memory independent of this)")
-    print(f"Full-draw  : {N_ITER_RAW:,} draws kept, for figures and raw CSVs")
-    print(f"Number of (Domain, Component, SensorType) rows: {len(merged)}\n")
+    print(f"  accumulator: {N_ITER_STATS:,} draws, chunked, memory independent")
+    print(f"  full draw  : {N_ITER_RAW:,} draws held in memory")
+    print(f"  tolerance  : {V14_TOL:.0%} (project noise floor)\n")
 
-    # --- statistics path: chunked, memory independent of the draw count
-    all_segment_accs[segment] = run_accumulated(merged, segment, N_ITER_STATS)
+    worst = {}
+    fails = []
+    for seg, key, metric, acc_v, full_v in v14:
+        denom = abs(full_v) if abs(full_v) > 1e-9 else 1.0
+        dev = abs(acc_v - full_v) / denom
+        if dev > worst.get(metric, (0, None, None))[0]:
+            worst[metric] = (dev, seg, key)
+        if dev > V14_TOL and abs(full_v) > 1.0:
+            fails.append((seg, key, metric, acc_v, full_v, dev))
 
-    # --- full-draw path: needed by the figures, the detailed CSV, the raw
-    #     distributions and the sensitivity analysis, none of which can be
-    #     rebuilt from histograms. THIS is what costs memory; step 4 caps it.
-    # The full-draw path describes a vehicle at BASE_YEAR, so it needs the SAME
-    # drivers the accumulator applies. Without them, every figure and raw CSV
-    # would silently show an all-400V, frozen-2025-ADAS vehicle. V14 compares
-    # the two paths at BASE_YEAR and fails loudly if either is missed -- it
-    # already caught exactly this once.
-    _adas_mask = (merged['Domain'] == ADAS_DOMAIN).to_numpy()
-    draws = run_batch_simulation(merged, segment, N_ITER_RAW,
-                                 unscaled_mask=_adas_mask)
-    draws = apply_adas_tier_presence(merged, draws, segment, BASE_YEAR)
-    draws = apply_voltage_uplift(merged, draws, segment, BASE_YEAR)
-    all_segment_draws[segment] = draws
+    print(f"  {'metric':<8}{'worst deviation':>18}   where")
+    for metric in ('mean', 'std', 'p025', 'p50', 'p975'):
+        if metric in worst:
+            dev, seg, key = worst[metric]
+            print(f"  {metric:<8}{dev:>17.3%}   {seg} / {key}")
 
-    results = {}
-    for st in sensor_types:
-        idxs = merged.loc[merged['SensorType'] == st, '_row_idx'].to_numpy()
-        results[st] = draws[idxs, :].sum(axis=0)
-    results['total'] = draws.sum(axis=0)
-
-    all_segment_results[segment] = results
-    print(f"{segment} Simulation complete!")
-
-
-# ============================================================================
-# CALCULATE STATISTICS FOR ALL SEGMENTS (per combined SensorType + Total)
-# ============================================================================
-
-def approx_mode(x, bins=200):
-    """Approximate mode for continuous data using the highest-count histogram bin."""
-    counts, edges = np.histogram(x, bins=bins)
-    i = np.argmax(counts)
-    return 0.5 * (edges[i] + edges[i + 1])
+    print(f"\n  {len(v14) - len(fails)} / {len(v14)} series-metrics within tolerance")
+    print(f"  (metrics whose full-draw value is <= 1.0 sensor are excluded from the "
+          f"pass/fail\n   count -- relative error is meaningless at that scale -- but "
+          f"they still appear\n   in the worst-deviation table above.)")
+    if fails:
+        print("  OUTSIDE TOLERANCE:")
+        for seg, key, metric, a, f, d in fails[:10]:
+            print(f"    {seg:>3} {str(key):<34} {metric:<6} acc {a:>10.3f}  full {f:>10.3f}  {d:>7.2%}")
+        if len(fails) > 10:
+            print(f"    ... and {len(fails) - 10} more")
+    else:
+        print("  V14 PASSED -- the accumulator reproduces the full-draw result.")
 
 
-all_stats = {}
-v14 = []          # (segment, key, accumulator value, full-draw value) for the check below
+    # ============================================================================
+    # V11 / V12 -- THE VOLTAGE DRIVER
+    #
+    # V11: does the 400V basis in 06_, plus the 800V uplift, reproduce what 06_
+    #      ORIGINALLY recorded as the observed 2025 mixture? This is the check that
+    #      would have caught the CD 800V error automatically.
+    # V12: do the sensor model and the wiring model draw the SAME 800V share?
+    # ============================================================================
 
-for segment in segments:
-    results = all_segment_results[segment]
-    accs = all_segment_accs[segment]
-    stats = {}
-
-    for key, values in results.items():
-        # STATISTICS COME FROM THE ACCUMULATOR (N_ITER_STATS draws, memory
-        # independent). The full-draw values are computed alongside only to
-        # verify the port -- see the V14 table printed after this loop.
-        stats[key] = stats_from_accumulator(accs[key])
-
-        full = {
-            'mean': np.mean(values),
-            'mode': approx_mode(values, bins=200),
-            'std': np.std(values),
-            'p025': np.percentile(values, 2.5),
-            'p50': np.percentile(values, 50),
-            'p975': np.percentile(values, 97.5),
-        }
-        for m in ('mean', 'std', 'p025', 'p50', 'p975'):
-            v14.append((segment, key, m, stats[key][m], full[m]))
-
-    all_stats[segment] = stats
-
-    print("="*70)
-    print(f"MONTE CARLO SIMULATION RESULTS - {segment} SEGMENT")
+    print("\n" + "="*70)
+    print("V11 / V12 -- VOLTAGE DRIVER")
     print("="*70)
 
-    # Print Total first, then each sensor type
-    for metric in ['total'] + sensor_types:
-        values = stats[metric]
-        label = 'TOTAL (all sensors)' if metric == 'total' else metric
-        print(f"\n{label}:")
-        print(f"  Mean:   {values['mean']:>10.2f}")
-        print(f"  Mode:   {values['mode']:>10.2f}")
-        print(f"  Median: {values['p50']:>10.2f}")
-        print(f"  Std:    {values['std']:>10.2f}")
-        print(f"  Min:    {values['min']:>10.2f}")
-        print(f"  P025:   {values['p025']:>10.2f}")
-        print(f"  P25:    {values['p25']:>10.2f}")
-        print(f"  P75:    {values['p75']:>10.2f}")
-        print(f"  P975:   {values['p975']:>10.2f}")
-        print(f"  Max:    {values['max']:>10.2f}")
+    # --- V12 first: the two models must read one curve
+    print("\n  V12 -- shared 800V penetration curve")
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(BASE_DIR / "Wiring"))
+        import BevWiring as _bw                              # noqa: E402
+        _wire = _bw.load_inputs(YEARS)
+        worst_v12 = max(float(np.abs(_wire.volt[s] - SHARE_800V[s]).max())
+                        for s in segments)
+        print(f"    max |sensor curve - wiring curve| over all segments "
+              f"and {len(YEARS)} years: {worst_v12:.3e}")
+        print("    V12 PASSED -- one curve, two models."
+              if worst_v12 < 1e-12 else "    V12 FAILED -- the models disagree.")
+    except Exception as e:                                   # noqa: BLE001
+        print(f"    skipped (could not import BevWiring: {type(e).__name__}: {e})")
 
+    # --- V11: round-trip against what 06_ originally recorded
+    print(f"\n  V11 -- 400V basis + uplift reproduces the original 2025 observation")
+    print("    Only the VOLTAGE row is an assertion. Its 400V basis was derived by")
+    print("    rebasing the recorded 2025 mixture, so reproducing that mixture is a")
+    print("    genuine round-trip -- and it is what would have caught the CD error.")
+    print("    The TEMPERATURE maxima were deliberately CUT on 2026-08-05 (97/109/173")
+    print("    -> 70/85/120, see 06_ sheet Notes), so the original observation is no")
+    print("    longer the target and those rows are informational only.\n")
 
-# ============================================================================
-# V14 -- DOES THE ACCUMULATOR REPRODUCE THE FULL-DRAW RESULT?
-#
-# The whole point of step 3: the port must not change the answer. Tolerance is
-# 3%, the project's self-consistency noise floor (19_ sheet Uncertainty) -- a
-# single source disagrees with itself by 2.8%, so demanding better of a
-# statistical estimator would be demanding it reproduce noise.
-# ============================================================================
-
-V14_TOL = 0.03
-
-print("\n" + "="*70)
-print("V14 -- ACCUMULATOR vs FULL DRAW")
-print("="*70)
-print(f"  accumulator: {N_ITER_STATS:,} draws, chunked, memory independent")
-print(f"  full draw  : {N_ITER_RAW:,} draws held in memory")
-print(f"  tolerance  : {V14_TOL:.0%} (project noise floor)\n")
-
-worst = {}
-fails = []
-for seg, key, metric, acc_v, full_v in v14:
-    denom = abs(full_v) if abs(full_v) > 1e-9 else 1.0
-    dev = abs(acc_v - full_v) / denom
-    if dev > worst.get(metric, (0, None, None))[0]:
-        worst[metric] = (dev, seg, key)
-    if dev > V14_TOL and abs(full_v) > 1.0:
-        fails.append((seg, key, metric, acc_v, full_v, dev))
-
-print(f"  {'metric':<8}{'worst deviation':>18}   where")
-for metric in ('mean', 'std', 'p025', 'p50', 'p975'):
-    if metric in worst:
-        dev, seg, key = worst[metric]
-        print(f"  {metric:<8}{dev:>17.3%}   {seg} / {key}")
-
-print(f"\n  {len(v14) - len(fails)} / {len(v14)} series-metrics within tolerance")
-print(f"  (metrics whose full-draw value is <= 1.0 sensor are excluded from the "
-      f"pass/fail\n   count -- relative error is meaningless at that scale -- but "
-      f"they still appear\n   in the worst-deviation table above.)")
-if fails:
-    print("  OUTSIDE TOLERANCE:")
-    for seg, key, metric, a, f, d in fails[:10]:
-        print(f"    {seg:>3} {str(key):<34} {metric:<6} acc {a:>10.3f}  full {f:>10.3f}  {d:>7.2%}")
-    if len(fails) > 10:
-        print(f"    ... and {len(fails) - 10} more")
-else:
-    print("  V14 PASSED -- the accumulator reproduces the full-draw result.")
-
-
-# ============================================================================
-# V11 / V12 -- THE VOLTAGE DRIVER
-#
-# V11: does the 400V basis in 06_, plus the 800V uplift, reproduce what 06_
-#      ORIGINALLY recorded as the observed 2025 mixture? This is the check that
-#      would have caught the CD 800V error automatically.
-# V12: do the sensor model and the wiring model draw the SAME 800V share?
-# ============================================================================
-
-print("\n" + "="*70)
-print("V11 / V12 -- VOLTAGE DRIVER")
-print("="*70)
-
-# --- V12 first: the two models must read one curve
-print("\n  V12 -- shared 800V penetration curve")
-try:
-    import sys as _sys
-    _sys.path.insert(0, str(BASE_DIR / "Wiring"))
-    import BevWiring as _bw                              # noqa: E402
-    _wire = _bw.load_inputs(YEARS)
-    worst_v12 = max(float(np.abs(_wire.volt[s] - SHARE_800V[s]).max())
-                    for s in segments)
-    print(f"    max |sensor curve - wiring curve| over all segments "
-          f"and {len(YEARS)} years: {worst_v12:.3e}")
-    print("    V12 PASSED -- one curve, two models."
-          if worst_v12 < 1e-12 else "    V12 FAILED -- the models disagree.")
-except Exception as e:                                   # noqa: BLE001
-    print(f"    skipped (could not import BevWiring: {type(e).__name__}: {e})")
-
-# --- V11: round-trip against what 06_ originally recorded
-print(f"\n  V11 -- 400V basis + uplift reproduces the original 2025 observation")
-print("    Only the VOLTAGE row is an assertion. Its 400V basis was derived by")
-print("    rebasing the recorded 2025 mixture, so reproducing that mixture is a")
-print("    genuine round-trip -- and it is what would have caught the CD error.")
-print("    The TEMPERATURE maxima were deliberately CUT on 2026-08-05 (97/109/173")
-print("    -> 70/85/120, see 06_ sheet Notes), so the original observation is no")
-print("    longer the target and those rows are informational only.\n")
-
-ORIGINAL_06 = {          # observed 2025 mixture, before the 2026-08-05 rebasing
-    'voltage sensor':     {'AB': 96.0, 'CD': 102.0, 'EF': 153.0},
-    'temperature sensor': {'AB': 66.0, 'CD':  81.0, 'EF': 129.0},
-}
-ASSERTED = {'voltage sensor'}
-
-yi25 = int(np.searchsorted(YEARS, BASE_YEAR))
-print(f"    {'row':<20}{'seg':<5}{'predicted':>11}{'orig 06_':>10}{'dev':>9}   note")
-v11_fail = 0
-for st, tri in BATTERY_ROWS.items():
-    for seg in segments:
-        idx = _battery_row_index(merged, st)
-        lo = merged.iloc[idx][f'{SEG_COL[seg]}_Min']
-        hi = merged.iloc[idx][f'{SEG_COL[seg]}_Max']
-        f = merged.iloc[idx][f'factor_{seg}']
-        basis = 0.5 * (lo + hi) * f
-        pred = basis * (1.0 + SHARE_800V[seg][yi25] * (np.mean(tri) - 1.0))
-        orig = ORIGINAL_06[st][seg]
-        dev = pred / orig - 1.0
-        if st in ASSERTED:
-            note = 'ASSERTED'
-            if abs(dev) > 0.05:
-                v11_fail += 1
-                note = 'ASSERTED -- OUTSIDE 5%'
-        else:
-            note = 'informational (maxima cut deliberately)'
-        print(f"    {st:<20}{seg:<5}{pred:>11.1f}{orig:>10.1f}{dev:>8.1%}   {note}")
-print(f"\n    {'V11 PASSED' if v11_fail == 0 else f'V11 FAILED -- {v11_fail} outside 5%'}"
-      f"  (voltage rows only; tolerance 5%, project noise floor ~3%)")
-
-
-# ============================================================================
-# V13 -- DOES THE TIER COMPOSITION REPRODUCE 01_'s STATIC LABELS AT 2025?
-#
-# 01_'s Std / Opt / Rare factor is a 2025 observation. The tier composition
-# replaces it with a curve. At 2025 the two must agree, or the new axis is
-# describing a different vehicle from the one the file recorded.
-#
-# Tolerance 0.15 on a share (docs/SENSOR_MODEL_DESIGN.md section 8). Loose on
-# purpose: Std/Opt/Rare is a 4-level ordinal scale, so it cannot resolve better
-# than ~0.25 in the first place.
-# ============================================================================
-
-print("\n" + "="*70)
-print("V13 -- TIER COMPOSITION vs 01_ STATIC LABELS, AT 2025")
-print("="*70)
-
-V13_TOL = 0.15
-
-# RE-SCOPED 2026-08-07. V13 used to assert every row at 0.15. Five rows can
-# never satisfy that, and not because anything is wrong: 01_'s scale has only
-# four values (Std 1.00, Opt 0.50, Rare 0.25, "-" 0.00), so a composed presence
-# landing between two of them -- 0.66, 0.73, 0.75, 0.83, 0.84 all sit between
-# Opt and Std -- is UNREPRESENTABLE. The largest possible gap to the nearest
-# label is 0.25, which is above the tolerance by construction.
-#
-# The tolerance is NOT widened; widening it would hide the three real findings
-# V13 made. Instead a row is only ASSERTED when the scale could express it,
-# i.e. when the nearest available label is itself within tolerance. Rows the
-# scale cannot represent are still printed, marked "unresolvable", so they stay
-# visible and nobody mistakes silence for agreement.
-STATUS_LEVELS = (1.00, 0.50, 0.25, 0.00)
-
-
-def _nearest_label_gap(x):
-    """Distance from x to the closest value 01_'s 4-level scale can express."""
-    return min(abs(x - v) for v in STATUS_LEVELS)
-print(f"\n    {'component':<36}{'seg':<5}{'composed':>10}{'01_':>7}{'diff':>8}")
-v13_fail = []
-v13_unres = []
-for comp in sorted(PRESENCE_TIER):
-    for seg in segments:
-        m = status_df[status_df['Component'].map(norm_key) == norm_key(comp)]
-        if not len(m):
-            continue
-        static = float(m.iloc[0][f'factor_{seg}'])
-        composed = float(PRESENCE_TIER[comp][seg][yi25])
-        diff = composed - static
-        unresolvable = _nearest_label_gap(composed) > V13_TOL
-        if abs(diff) <= V13_TOL:
-            flag = ''
-        elif unresolvable:
-            flag = '  (unresolvable on a 4-level scale)'
-        else:
-            flag = '  <-- OUTSIDE'
-            v13_fail.append((comp, seg, composed, static, diff))
-        if unresolvable:
-            v13_unres.append((comp, seg, composed, static))
-        print(f"    {comp[:35]:<36}{seg:<5}{composed:>10.2f}{static:>7.2f}"
-              f"{diff:>+8.2f}{flag}")
-
-n_checked = sum(1 for c in PRESENCE_TIER for s in segments
-                if len(status_df[status_df['Component'].map(norm_key) == norm_key(c)]))
-n_assert = n_checked - len(v13_unres)
-print(f"\n    {n_assert - len(v13_fail)} / {n_assert} asserted rows within {V13_TOL:.2f}")
-if v13_unres:
-    print(f"    {len(v13_unres)} row(s) not asserted -- the composed value falls between two")
-    print(f"    of 01_'s four labels, so the file cannot express it:")
-    for c, sg, comp, st in v13_unres:
-        print(f"      {c[:34]:<36}{sg:<5}composed {comp:.2f}, nearest label {st:.2f}")
-print("    V13 PASSED -- the tier axis reproduces the 2025 observation."
-      if not v13_fail else
-      f"    V13 -- {len(v13_fail)} outside tolerance, listed above.")
-
-
-
-# ============================================================================
-# V15 -- DO THE TWO MODELS COUNT THE SAME CAR?
-#
-# The sensor model counts ELEMENTS (chips). The wiring model reads 19_ sheet
-# Tiers, which counts MODULES (boxes). A corner radar is ONE box containing an
-# RF transceiver AND a temperature sensor, so an element count is double a
-# module count for radar -- and a radar box takes ONE cable however many chips
-# are inside.
-#
-# 19_ sheet Modules_vs_Elements names, per component, the PRIMARY element whose
-# count EQUALS the module count. This check composes module counts the sensor
-# model's way and asserts they overlap the wiring model's Tiers ranges. Without
-# it the two models can drift apart silently, which is exactly what happened:
-# on an element basis EF radar overlapped at 0 of 5 tiers.
-#
-# Ranges, not points: two ranges pass if they OVERLAP AT ALL. Both sides are
-# Monte Carlo inputs, so demanding equal midpoints would be demanding that two
-# independent estimates agree to the decimal.
-# ============================================================================
-
-print("\n" + "="*70)
-print("V15 -- MODULE COUNTS: SENSOR MODEL vs WIRING MODEL (19_ Tiers)")
-print("="*70)
-
-_mve = pd.read_excel(ADAS_FILE, sheet_name="Modules_vs_Elements", header=3)
-_mve = _mve[_mve.iloc[:, 0].notna()]
-PRIMARY_ELEMENT = {str(r.iloc[0]).strip(): str(r.iloc[1]).strip()
-                   for _, r in _mve.iterrows() if str(r.iloc[1]).strip() != "-"}
-_tiers_tbl = pd.read_excel(ADAS_FILE, sheet_name="Tiers", header=3)
-_tiers_tbl = _tiers_tbl[_tiers_tbl.Tier.notna()]
-
-V15_GROUPS = {
-    "camera":     (["Front ADAS camera", "Rear view camera", "Side / mirror cameras",
-                    "Driver monitoring camera"], "Cam_min", "Cam_max"),
-    "radar":      (["Front long-range radar", "Corner short/mid-range radars"],
-                   "Radar_min", "Radar_max"),
-    "ultrasonic": (["Ultrasonic sensors"], "Ultra_min", "Ultra_max"),
-}
-_SEG06 = {"AB": "A-B", "CD": "C-D", "EF": "E-F"}
-
-
-def _module_range(components, seg, tier):
-    """Modules per vehicle at `tier`: primary element only, scaled by presence."""
-    lo = hi = 0.0
-    for comp in components:
-        cell = _pres_raw.loc[_pres_raw.Component.map(norm_key) == norm_key(comp), tier]
-        if not len(cell) or isinstance(cell.iloc[0], str):
-            continue                      # lidar reads "Driver B", not a tier value
-        f = float(cell.iloc[0])
-        prim = PRIMARY_ELEMENT.get(comp)
-        r = sensor_df[(sensor_df['Component'].map(norm_key) == norm_key(comp)) &
-                      (sensor_df['SensorType'].map(norm_key) == norm_key(prim))]
-        if not len(r):
-            continue
-        c = _SEG06[seg]
-        lo += f * float(r[f'{c}_Min'].iloc[0])
-        hi += f * float(r[f'{c}_Max'].iloc[0])
-    return lo, hi
-
-
-_pres_raw = pd.read_excel(ADAS_FILE, sheet_name="Presence_per_Tier", header=3)
-_pres_raw = _pres_raw[_pres_raw.Component.notna()]
-
-v15_fail = []
-print(f"\n    {'group':<12}{'seg':<5}{'tier':<6}{'sensor model':>16}{'wiring model':>16}   result")
-for gname, (comps, cmin, cmax) in V15_GROUPS.items():
-    for seg in segments:
-        # Tiers is per SEGMENT since 2026-08-07 -- take only this segment's rows.
-        # Without this filter each segment is compared against all fifteen rows,
-        # so AB gets checked against EF's counts.
-        seg_rows = _tiers_tbl[_tiers_tbl.Segment.astype(str).str.strip() == seg]
-        for _, trow in seg_rows.iterrows():
-            s_lo, s_hi = _module_range(comps, seg, trow.Tier)
-            w_lo, w_hi = float(trow[cmin]), float(trow[cmax])
-            ok = not (s_hi < w_lo or w_hi < s_lo)
-            if not ok:
-                v15_fail.append((gname, seg, trow.Tier, (s_lo, s_hi), (w_lo, w_hi)))
-            print(f"    {gname:<12}{seg:<5}{trow.Tier:<6}"
-                  f"{f'{s_lo:.1f} - {s_hi:.1f}':>16}{f'{w_lo:.0f} - {w_hi:.0f}':>16}"
-                  f"   {'overlap' if ok else 'NO OVERLAP  <--'}")
-_n15 = len(V15_GROUPS) * len(_tiers_tbl)   # Tiers already carries the segment
-print(f"\n    {_n15 - len(v15_fail)} / {_n15} overlap")
-print("    V15 PASSED -- the two models describe the same car."
-      if not v15_fail else
-      f"    V15 -- {len(v15_fail)} combinations do not overlap, listed above.")
-
-
-# ============================================================================
-# YEAR-RESOLVED STATISTICS  -- the output this whole step exists to produce
-# ============================================================================
-
-print("\n" + "="*70)
-print("YEAR-RESOLVED SENSOR COUNTS")
-print("="*70)
-
-rows_out = []
-for segment in segments:
-    for key, acc in all_segment_accs[segment].items():
-        name = key[1] if isinstance(key, tuple) else key
-        level = 'Domain' if isinstance(key, tuple) else (
-            'Total' if key == 'total' else 'SensorType')
-        mean = acc.mean
-        p025 = acc.percentile(2.5)
-        p50 = acc.percentile(50)
-        p975 = acc.percentile(97.5)
-        mode = acc.coarse_mode()
-        std = acc.std
-        for yi, yr in enumerate(YEARS):
-            rows_out.append({
-                'Segment': segment, 'Level': level, 'Name': name, 'Year': int(yr),
-                'Mean': mean[yi], 'Mode': mode[yi], 'Median': p50[yi],
-                'Std': std[yi], 'P025': p025[yi], 'P975': p975[yi],
-            })
-year_stats = pd.DataFrame(rows_out)
-year_stats.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / 'sensor_year_stats.csv', index=False)
-print(f"  {len(year_stats):,} rows -> csv_monte_carlo/sensor_year_stats.csv")
-print(f"  ({len(segments)} segments x {len(all_segment_accs['AB'])} series "
-      f"x {len(YEARS)} years)")
-
-print("\n  TOTAL sensors per vehicle, mean, by year:")
-print(f"    {'seg':<5}" + "".join(f"{y:>9}" for y in SNAPSHOT_YEARS))
-for segment in segments:
-    m = all_segment_accs[segment]['total'].mean
-    print(f"    {segment:<5}" + "".join(
-        f"{m[int(np.searchsorted(YEARS, y))]:>9.1f}" for y in SNAPSHOT_YEARS))
-
-print("\n  Battery cell VOLTAGE sensing, mean, by year (the 800V driver):")
-print(f"    {'seg':<5}" + "".join(f"{y:>9}" for y in SNAPSHOT_YEARS))
-for segment in segments:
-    m = all_segment_accs[segment]['voltage sensor'].mean
-    print(f"    {segment:<5}" + "".join(
-        f"{m[int(np.searchsorted(YEARS, y))]:>9.1f}" for y in SNAPSHOT_YEARS))
-
-
-# ============================================================================
-# SEGMENT COMPARISON (grand total)
-# ============================================================================
-
-print("\n" + "="*70)
-print(f"SEGMENT COMPARISON  (at BASE_YEAR = {BASE_YEAR})")
-print("="*70)
-
-comparison_df = pd.DataFrame({
-    'Segment': segments,
-    'Mean_Total_Sensors': [all_stats[seg]['total']['mean'] for seg in segments],
-    'Mode_Total_Sensors': [all_stats[seg]['total']['mode'] for seg in segments],
-    'Median_Total_Sensors': [all_stats[seg]['total']['p50'] for seg in segments],
-    'Std_Total_Sensors': [all_stats[seg]['total']['std'] for seg in segments],
-    'P025_Total_Sensors': [all_stats[seg]['total']['p025'] for seg in segments],
-    'P975_Total_Sensors': [all_stats[seg]['total']['p975'] for seg in segments],
-})
-
-print("\n", comparison_df.to_string(index=False))
-
-
-# ============================================================================
-# SENSITIVITY ANALYSIS - BY SEGMENT (per SensorType contribution to Total)
-# ============================================================================
-
-print("\n" + "="*70)
-print("SENSITIVITY ANALYSIS BY SEGMENT")
-print("="*70)
-
-all_sensitivity = {}
-
-for segment in segments:
-    results = all_segment_results[segment]
-
-    print(f"\n{segment} SEGMENT:")
-    print("-" * 70)
-
-    total_var = np.var(results['total'])
-
-    variance_contrib = {}
-    correlations = {}
-    for st in sensor_types:
-        v = np.var(results[st])
-        variance_contrib[st] = v / total_var if total_var > 0 else np.nan
-        corr = np.corrcoef(results[st], results['total'])[0, 1] if np.std(results[st]) > 0 else np.nan
-        correlations[st] = corr
-
-    # Rank by variance contribution, show top 10 for readability in console
-    ranked = sorted(variance_contrib.items(), key=lambda kv: (kv[1] if kv[1] == kv[1] else -1), reverse=True)
-    print("\nTop 10 SensorTypes by Variance Contribution to Total Sensor Count:")
-    for st, vc in ranked[:10]:
-        corr = correlations[st]
-        corr_str = f"{corr:>6.3f}" if corr == corr else "  n/a"
-        print(f"  {st:40s}: {vc*100:>6.2f}%   (corr with total: {corr_str})")
-
-    all_sensitivity[segment] = {
-        'variance_contrib': variance_contrib,
-        'correlations': correlations
+    ORIGINAL_06 = {          # observed 2025 mixture, before the 2026-08-05 rebasing
+        'voltage sensor':     {'AB': 96.0, 'CD': 102.0, 'EF': 153.0},
+        'temperature sensor': {'AB': 66.0, 'CD':  81.0, 'EF': 129.0},
     }
+    ASSERTED = {'voltage sensor'}
+
+    yi25 = int(np.searchsorted(YEARS, BASE_YEAR))
+    print(f"    {'row':<20}{'seg':<5}{'predicted':>11}{'orig 06_':>10}{'dev':>9}   note")
+    v11_fail = 0
+    for st, tri in BATTERY_ROWS.items():
+        for seg in segments:
+            idx = _battery_row_index(merged, st)
+            lo = merged.iloc[idx][f'{SEG_COL[seg]}_Min']
+            hi = merged.iloc[idx][f'{SEG_COL[seg]}_Max']
+            f = merged.iloc[idx][f'factor_{seg}']
+            basis = 0.5 * (lo + hi) * f
+            pred = basis * (1.0 + SHARE_800V[seg][yi25] * (np.mean(tri) - 1.0))
+            orig = ORIGINAL_06[st][seg]
+            dev = pred / orig - 1.0
+            if st in ASSERTED:
+                note = 'ASSERTED'
+                if abs(dev) > 0.05:
+                    v11_fail += 1
+                    note = 'ASSERTED -- OUTSIDE 5%'
+            else:
+                note = 'informational (maxima cut deliberately)'
+            print(f"    {st:<20}{seg:<5}{pred:>11.1f}{orig:>10.1f}{dev:>8.1%}   {note}")
+    print(f"\n    {'V11 PASSED' if v11_fail == 0 else f'V11 FAILED -- {v11_fail} outside 5%'}"
+          f"  (voltage rows only; tolerance 5%, project noise floor ~3%)")
 
 
-# ============================================================================
-# DOMAIN ANALYSIS BY SEGMENT (deterministic summary from input ranges)
-# ============================================================================
+    # ============================================================================
+    # V13 -- DOES THE TIER COMPOSITION REPRODUCE 01_'s STATIC LABELS AT 2025?
+    #
+    # 01_'s Std / Opt / Rare factor is a 2025 observation. The tier composition
+    # replaces it with a curve. At 2025 the two must agree, or the new axis is
+    # describing a different vehicle from the one the file recorded.
+    #
+    # Tolerance 0.15 on a share (docs/04_SENSOR_MODEL_DESIGN.md section 8). Loose on
+    # purpose: Std/Opt/Rare is a 4-level ordinal scale, so it cannot resolve better
+    # than ~0.25 in the first place.
+    # ============================================================================
 
-print("\n" + "="*70)
-print("ANALYSIS BY DOMAIN AND SEGMENT (AVERAGES FROM INPUT RANGES)")
-print("="*70)
+    print("\n" + "="*70)
+    print("V13 -- TIER COMPOSITION vs 01_ STATIC LABELS, AT 2025")
+    print("="*70)
 
-for segment in segments:
-    col_prefix = SEG_COL[segment]
-    print(f"\n{segment} SEGMENT:")
-    print("-" * 70)
+    V13_TOL = 0.15
 
-    for domain in domains:
-        domain_rows = merged[merged['Domain'] == domain]
-        scaled_min = domain_rows[f'{col_prefix}_Min'] * domain_rows[f'factor_{segment}']
-        scaled_max = domain_rows[f'{col_prefix}_Max'] * domain_rows[f'factor_{segment}']
-        avg = ((scaled_min + scaled_max) / 2).sum()
+    # RE-SCOPED 2026-08-07. V13 used to assert every row at 0.15. Five rows can
+    # never satisfy that, and not because anything is wrong: 01_'s scale has only
+    # four values (Std 1.00, Opt 0.50, Rare 0.25, "-" 0.00), so a composed presence
+    # landing between two of them -- 0.66, 0.73, 0.75, 0.83, 0.84 all sit between
+    # Opt and Std -- is UNREPRESENTABLE. The largest possible gap to the nearest
+    # label is 0.25, which is above the tolerance by construction.
+    #
+    # The tolerance is NOT widened; widening it would hide the three real findings
+    # V13 made. Instead a row is only ASSERTED when the scale could express it,
+    # i.e. when the nearest available label is itself within tolerance. Rows the
+    # scale cannot represent are still printed, marked "unresolvable", so they stay
+    # visible and nobody mistakes silence for agreement.
+    STATUS_LEVELS = (1.00, 0.50, 0.25, 0.00)
 
-        print(f"  {domain:20s}: {len(domain_rows):3d} sensor rows, avg sensor count = {avg:>8.2f}")
+
+    def _nearest_label_gap(x):
+        """Distance from x to the closest value 01_'s 4-level scale can express."""
+        return min(abs(x - v) for v in STATUS_LEVELS)
+    print(f"\n    {'component':<36}{'seg':<5}{'composed':>10}{'01_':>7}{'diff':>8}")
+    v13_fail = []
+    v13_unres = []
+    for comp in sorted(PRESENCE_TIER):
+        for seg in segments:
+            m = status_df[status_df['Component'].map(norm_key) == norm_key(comp)]
+            if not len(m):
+                continue
+            static = float(m.iloc[0][f'factor_{seg}'])
+            composed = float(PRESENCE_TIER[comp][seg][yi25])
+            diff = composed - static
+            unresolvable = _nearest_label_gap(composed) > V13_TOL
+            if abs(diff) <= V13_TOL:
+                flag = ''
+            elif unresolvable:
+                flag = '  (unresolvable on a 4-level scale)'
+            else:
+                flag = '  <-- OUTSIDE'
+                v13_fail.append((comp, seg, composed, static, diff))
+            if unresolvable:
+                v13_unres.append((comp, seg, composed, static))
+            print(f"    {comp[:35]:<36}{seg:<5}{composed:>10.2f}{static:>7.2f}"
+                  f"{diff:>+8.2f}{flag}")
+
+    n_checked = sum(1 for c in PRESENCE_TIER for s in segments
+                    if len(status_df[status_df['Component'].map(norm_key) == norm_key(c)]))
+    n_assert = n_checked - len(v13_unres)
+    print(f"\n    {n_assert - len(v13_fail)} / {n_assert} asserted rows within {V13_TOL:.2f}")
+    if v13_unres:
+        print(f"    {len(v13_unres)} row(s) not asserted -- the composed value falls between two")
+        print(f"    of 01_'s four labels, so the file cannot express it:")
+        for c, sg, comp, st in v13_unres:
+            print(f"      {c[:34]:<36}{sg:<5}composed {comp:.2f}, nearest label {st:.2f}")
+    print("    V13 PASSED -- the tier axis reproduces the 2025 observation."
+          if not v13_fail else
+          f"    V13 -- {len(v13_fail)} outside tolerance, listed above.")
 
 
-# ============================================================================
-# DOMAIN-LEVEL MONTE CARLO (one MC run per Domain x Segment)
-# ============================================================================
 
-print("\n" + "="*70)
-print("RUNNING DOMAIN-SPECIFIC MONTE CARLO ANALYSIS")
-print("="*70)
-print(f"Domains: {', '.join(domains)}\n")
+    # ============================================================================
+    # V15 -- DO THE TWO MODELS COUNT THE SAME CAR?
+    #
+    # The sensor model counts ELEMENTS (chips). The wiring model reads 19_ sheet
+    # Tiers, which counts MODULES (boxes). A corner radar is ONE box containing an
+    # RF transceiver AND a temperature sensor, so an element count is double a
+    # module count for radar -- and a radar box takes ONE cable however many chips
+    # are inside.
+    #
+    # 19_ sheet Modules_vs_Elements names, per component, the PRIMARY element whose
+    # count EQUALS the module count. This check composes module counts the sensor
+    # model's way and asserts they overlap the wiring model's Tiers ranges. Without
+    # it the two models can drift apart silently, which is exactly what happened:
+    # on an element basis EF radar overlapped at 0 of 5 tiers.
+    #
+    # Ranges, not points: two ranges pass if they OVERLAP AT ALL. Both sides are
+    # Monte Carlo inputs, so demanding equal midpoints would be demanding that two
+    # independent estimates agree to the decimal.
+    # ============================================================================
 
-domain_segment_results = {}
-domain_stats = {}
+    print("\n" + "="*70)
+    print("V15 -- MODULE COUNTS: SENSOR MODEL vs WIRING MODEL (19_ Tiers)")
+    print("="*70)
 
-for segment in segments:
-    print(f"Processing {segment} segment...")
-    draws = all_segment_draws[segment]
-    domain_segment_results[segment] = {}
-    domain_stats[segment] = {}
+    _mve = pd.read_excel(ADAS_FILE, sheet_name="Modules_vs_Elements", header=3)
+    _mve = _mve[_mve.iloc[:, 0].notna()]
+    PRIMARY_ELEMENT = {str(r.iloc[0]).strip(): str(r.iloc[1]).strip()
+                       for _, r in _mve.iterrows() if str(r.iloc[1]).strip() != "-"}
+    _tiers_tbl = pd.read_excel(ADAS_FILE, sheet_name="Tiers", header=3)
+    _tiers_tbl = _tiers_tbl[_tiers_tbl.Tier.notna()]
 
-    for domain in domains:
-        idxs = merged.loc[merged['Domain'] == domain, '_row_idx'].to_numpy()
-        domain_total = draws[idxs, :].sum(axis=0)
-        domain_segment_results[segment][domain] = domain_total
+    V15_GROUPS = {
+        "camera":     (["Front ADAS camera", "Rear view camera", "Side / mirror cameras",
+                        "Driver monitoring camera"], "Cam_min", "Cam_max"),
+        "radar":      (["Front long-range radar", "Corner short/mid-range radars"],
+                       "Radar_min", "Radar_max"),
+        "ultrasonic": (["Ultrasonic sensors"], "Ultra_min", "Ultra_max"),
+    }
+    _SEG06 = {"AB": "A-B", "CD": "C-D", "EF": "E-F"}
 
-        domain_stats[segment][domain] = {
-            'mean': np.mean(domain_total),
-            'mode': approx_mode(domain_total, bins=200),
-            'median': np.percentile(domain_total, 50),
-            'std': np.std(domain_total),
-            'p025': np.percentile(domain_total, 2.5),
-            'p975': np.percentile(domain_total, 97.5),
+
+    def _module_range(components, seg, tier):
+        """Modules per vehicle at `tier`: primary element only, scaled by presence."""
+        lo = hi = 0.0
+        for comp in components:
+            cell = _pres_raw.loc[_pres_raw.Component.map(norm_key) == norm_key(comp), tier]
+            if not len(cell) or isinstance(cell.iloc[0], str):
+                continue                      # lidar reads "Driver B", not a tier value
+            f = float(cell.iloc[0])
+            prim = PRIMARY_ELEMENT.get(comp)
+            r = sensor_df[(sensor_df['Component'].map(norm_key) == norm_key(comp)) &
+                          (sensor_df['SensorType'].map(norm_key) == norm_key(prim))]
+            if not len(r):
+                continue
+            c = _SEG06[seg]
+            lo += f * float(r[f'{c}_Min'].iloc[0])
+            hi += f * float(r[f'{c}_Max'].iloc[0])
+        return lo, hi
+
+
+    _pres_raw = pd.read_excel(ADAS_FILE, sheet_name="Presence_per_Tier", header=3)
+    _pres_raw = _pres_raw[_pres_raw.Component.notna()]
+
+    v15_fail = []
+    print(f"\n    {'group':<12}{'seg':<5}{'tier':<6}{'sensor model':>16}{'wiring model':>16}   result")
+    for gname, (comps, cmin, cmax) in V15_GROUPS.items():
+        for seg in segments:
+            # Tiers is per SEGMENT since 2026-08-07 -- take only this segment's rows.
+            # Without this filter each segment is compared against all fifteen rows,
+            # so AB gets checked against EF's counts.
+            seg_rows = _tiers_tbl[_tiers_tbl.Segment.astype(str).str.strip() == seg]
+            for _, trow in seg_rows.iterrows():
+                s_lo, s_hi = _module_range(comps, seg, trow.Tier)
+                w_lo, w_hi = float(trow[cmin]), float(trow[cmax])
+                ok = not (s_hi < w_lo or w_hi < s_lo)
+                if not ok:
+                    v15_fail.append((gname, seg, trow.Tier, (s_lo, s_hi), (w_lo, w_hi)))
+                print(f"    {gname:<12}{seg:<5}{trow.Tier:<6}"
+                      f"{f'{s_lo:.1f} - {s_hi:.1f}':>16}{f'{w_lo:.0f} - {w_hi:.0f}':>16}"
+                      f"   {'overlap' if ok else 'NO OVERLAP  <--'}")
+    _n15 = len(V15_GROUPS) * len(_tiers_tbl)   # Tiers already carries the segment
+    print(f"\n    {_n15 - len(v15_fail)} / {_n15} overlap")
+    print("    V15 PASSED -- the two models describe the same car."
+          if not v15_fail else
+          f"    V15 -- {len(v15_fail)} combinations do not overlap, listed above.")
+
+
+    # ============================================================================
+    # YEAR-RESOLVED STATISTICS  -- the output this whole step exists to produce
+    # ============================================================================
+
+    print("\n" + "="*70)
+    print("YEAR-RESOLVED SENSOR COUNTS")
+    print("="*70)
+
+    rows_out = []
+    for segment in segments:
+        for key, acc in all_segment_accs[segment].items():
+            name = key[1] if isinstance(key, tuple) else key
+            level = 'Domain' if isinstance(key, tuple) else (
+                'Total' if key == 'total' else 'SensorType')
+            mean = acc.mean
+            p025 = acc.percentile(2.5)
+            p50 = acc.percentile(50)
+            p975 = acc.percentile(97.5)
+            mode = acc.coarse_mode()
+            std = acc.std
+            for yi, yr in enumerate(YEARS):
+                rows_out.append({
+                    'Segment': segment, 'Level': level, 'Name': name, 'Year': int(yr),
+                    'Mean': mean[yi], 'Mode': mode[yi], 'Median': p50[yi],
+                    'Std': std[yi], 'P025': p025[yi], 'P975': p975[yi],
+                })
+    year_stats = pd.DataFrame(rows_out)
+    year_stats.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / 'sensor_year_stats.csv', index=False)
+    print(f"  {len(year_stats):,} rows -> csv_monte_carlo/sensor_year_stats.csv")
+    print(f"  ({len(segments)} segments x {len(all_segment_accs['AB'])} series "
+          f"x {len(YEARS)} years)")
+
+    print("\n  TOTAL sensors per vehicle, mean, by year:")
+    print(f"    {'seg':<5}" + "".join(f"{y:>9}" for y in SNAPSHOT_YEARS))
+    for segment in segments:
+        m = all_segment_accs[segment]['total'].mean
+        print(f"    {segment:<5}" + "".join(
+            f"{m[int(np.searchsorted(YEARS, y))]:>9.1f}" for y in SNAPSHOT_YEARS))
+
+    print("\n  Battery cell VOLTAGE sensing, mean, by year (the 800V driver):")
+    print(f"    {'seg':<5}" + "".join(f"{y:>9}" for y in SNAPSHOT_YEARS))
+    for segment in segments:
+        m = all_segment_accs[segment]['voltage sensor'].mean
+        print(f"    {segment:<5}" + "".join(
+            f"{m[int(np.searchsorted(YEARS, y))]:>9.1f}" for y in SNAPSHOT_YEARS))
+
+
+    # ============================================================================
+    # SEGMENT COMPARISON (grand total)
+    # ============================================================================
+
+    print("\n" + "="*70)
+    print(f"SEGMENT COMPARISON  (at BASE_YEAR = {BASE_YEAR})")
+    print("="*70)
+
+    comparison_df = pd.DataFrame({
+        'Segment': segments,
+        'Mean_Total_Sensors': [all_stats[seg]['total']['mean'] for seg in segments],
+        'Mode_Total_Sensors': [all_stats[seg]['total']['mode'] for seg in segments],
+        'Median_Total_Sensors': [all_stats[seg]['total']['p50'] for seg in segments],
+        'Std_Total_Sensors': [all_stats[seg]['total']['std'] for seg in segments],
+        'P025_Total_Sensors': [all_stats[seg]['total']['p025'] for seg in segments],
+        'P975_Total_Sensors': [all_stats[seg]['total']['p975'] for seg in segments],
+    })
+
+    print("\n", comparison_df.to_string(index=False))
+
+
+    # ============================================================================
+    # SENSITIVITY ANALYSIS - BY SEGMENT (per SensorType contribution to Total)
+    # ============================================================================
+
+    print("\n" + "="*70)
+    print("SENSITIVITY ANALYSIS BY SEGMENT")
+    print("="*70)
+
+    all_sensitivity = {}
+
+    for segment in segments:
+        results = all_segment_results[segment]
+
+        print(f"\n{segment} SEGMENT:")
+        print("-" * 70)
+
+        total_var = np.var(results['total'])
+
+        variance_contrib = {}
+        correlations = {}
+        for st in sensor_types:
+            v = np.var(results[st])
+            variance_contrib[st] = v / total_var if total_var > 0 else np.nan
+            corr = np.corrcoef(results[st], results['total'])[0, 1] if np.std(results[st]) > 0 else np.nan
+            correlations[st] = corr
+
+        # Rank by variance contribution, show top 10 for readability in console
+        ranked = sorted(variance_contrib.items(), key=lambda kv: (kv[1] if kv[1] == kv[1] else -1), reverse=True)
+        print("\nTop 10 SensorTypes by Variance Contribution to Total Sensor Count:")
+        for st, vc in ranked[:10]:
+            corr = correlations[st]
+            corr_str = f"{corr:>6.3f}" if corr == corr else "  n/a"
+            print(f"  {st:40s}: {vc*100:>6.2f}%   (corr with total: {corr_str})")
+
+        all_sensitivity[segment] = {
+            'variance_contrib': variance_contrib,
+            'correlations': correlations
         }
 
-print("Domain-specific Monte Carlo complete!\n")
+
+    # ============================================================================
+    # DOMAIN ANALYSIS BY SEGMENT (deterministic summary from input ranges)
+    # ============================================================================
+
+    print("\n" + "="*70)
+    print("ANALYSIS BY DOMAIN AND SEGMENT (AVERAGES FROM INPUT RANGES)")
+    print("="*70)
+
+    for segment in segments:
+        col_prefix = SEG_COL[segment]
+        print(f"\n{segment} SEGMENT:")
+        print("-" * 70)
+
+        for domain in domains:
+            domain_rows = merged[merged['Domain'] == domain]
+            scaled_min = domain_rows[f'{col_prefix}_Min'] * domain_rows[f'factor_{segment}']
+            scaled_max = domain_rows[f'{col_prefix}_Max'] * domain_rows[f'factor_{segment}']
+            avg = ((scaled_min + scaled_max) / 2).sum()
+
+            print(f"  {domain:20s}: {len(domain_rows):3d} sensor rows, avg sensor count = {avg:>8.2f}")
 
 
-# ============================================================================
-# VISUALIZATIONS (segment-level, grand total)
-# ============================================================================
+    # ============================================================================
+    # DOMAIN-LEVEL MONTE CARLO (one MC run per Domain x Segment)
+    # ============================================================================
 
-print("\n" + "="*70)
-print("GENERATING VISUALIZATIONS")
-print("="*70)
+    print("\n" + "="*70)
+    print("RUNNING DOMAIN-SPECIFIC MONTE CARLO ANALYSIS")
+    print("="*70)
+    print(f"Domains: {', '.join(domains)}\n")
 
-# Figure 1: Segment Comparison - Total Sensor Count
-fig1, axes = plt.subplots(2, 2, figsize=(16, 12))
-fig1.suptitle('BEV Sensor Count Monte Carlo Simulation - Segment Comparison', fontsize=16, fontweight='bold')
+    domain_segment_results = {}
+    domain_stats = {}
 
-ax1 = axes[0, 0]
-for segment in segments:
-    ax1.hist(all_segment_results[segment]['total'], bins=50, alpha=0.5, label=f'{segment} Segment')
-ax1.set_xlabel('Total Number of Sensors')
-ax1.set_ylabel('Frequency')
-ax1.set_title('Total Sensor Count Distribution by Segment')
-ax1.legend()
-ax1.grid(True, alpha=0.3)
+    for segment in segments:
+        print(f"Processing {segment} segment...")
+        draws = all_segment_draws[segment]
+        domain_segment_results[segment] = {}
+        domain_stats[segment] = {}
 
-ax2 = axes[0, 1]
-box_data = [all_segment_results[seg]['total'] for seg in segments]
-bp = ax2.boxplot(box_data, tick_labels=segments, patch_artist=True)
-colors = ['lightblue', 'lightgreen', 'lightcoral']
-for patch, color in zip(bp['boxes'], colors):
-    patch.set_facecolor(color)
-ax2.set_ylabel('Total Number of Sensors')
-ax2.set_title('Total Sensor Count by Segment')
-ax2.grid(True, alpha=0.3, axis='y')
+        for domain in domains:
+            idxs = merged.loc[merged['Domain'] == domain, '_row_idx'].to_numpy()
+            domain_total = draws[idxs, :].sum(axis=0)
+            domain_segment_results[segment][domain] = domain_total
 
-ax3 = axes[1, 0]
-x = np.arange(len(segments))
-means = [all_stats[seg]['total']['mean'] for seg in segments]
-stds = [all_stats[seg]['total']['std'] for seg in segments]
-ax3.bar(x, means, yerr=stds, capsize=5, color=colors)
-ax3.set_xlabel('Segment')
-ax3.set_ylabel('Mean Total Sensor Count')
-ax3.set_title('Mean Total Sensor Count by Segment')
-ax3.set_xticks(x)
-ax3.set_xticklabels(segments)
-ax3.grid(True, alpha=0.3, axis='y')
+            domain_stats[segment][domain] = {
+                'mean': np.mean(domain_total),
+                'mode': approx_mode(domain_total, bins=200),
+                'median': np.percentile(domain_total, 50),
+                'std': np.std(domain_total),
+                'p025': np.percentile(domain_total, 2.5),
+                'p975': np.percentile(domain_total, 97.5),
+            }
 
-ax4 = axes[1, 1]
-top5 = sorted(sensor_types, key=lambda st: all_stats['EF'][st]['mean'], reverse=True)[:5]
-width = 0.25
-for i, segment in enumerate(segments):
-    vals = [all_stats[segment][st]['mean'] for st in top5]
-    ax4.bar(np.arange(len(top5)) + (i - 1) * width, vals, width, label=f'{segment} Segment')
-ax4.set_xticks(np.arange(len(top5)))
-ax4.set_xticklabels(top5, rotation=30, ha='right')
-ax4.set_ylabel('Mean Sensor Count')
-ax4.set_title('Top 5 Sensor Types by Mean Count (E-F) Across Segments')
-ax4.legend()
-ax4.grid(True, alpha=0.3, axis='y')
+    print("Domain-specific Monte Carlo complete!\n")
 
-plt.tight_layout()
-plt.savefig(SCRIPT_DIR / 'figures_segment' / 'sensor_segment_comparison.png', dpi=300, bbox_inches='tight')
-print("✓ Saved: figures_segment/sensor_segment_comparison.png")
 
-# Figure 2: Detailed Results for Each Segment (grand total + top sensor types)
-for segment in segments:
-    results = all_segment_results[segment]
-    stats = all_stats[segment]
+    # ============================================================================
+    # VISUALIZATIONS (segment-level, grand total)
+    # ============================================================================
 
-    fig2, axes2 = plt.subplots(2, 2, figsize=(14, 10))
-    fig2.suptitle(f'BEV Sensor Count Monte Carlo Results - {segment} Segment', fontsize=16, fontweight='bold')
+    print("\n" + "="*70)
+    print("GENERATING VISUALIZATIONS")
+    print("="*70)
 
-    top5_seg = sorted(sensor_types, key=lambda st: stats[st]['mean'], reverse=True)[:5]
+    # Figure 1: Segment Comparison - Total Sensor Count
+    fig1, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig1.suptitle('BEV Sensor Count Monte Carlo Simulation - Segment Comparison', fontsize=16, fontweight='bold')
 
-    ax1 = axes2[0, 0]
-    for st in top5_seg:
-        ax1.hist(results[st], bins=50, alpha=0.5, label=st)
-    ax1.set_xlabel('Sensor Count')
+    ax1 = axes[0, 0]
+    for segment in segments:
+        ax1.hist(all_segment_results[segment]['total'], bins=50, alpha=0.5, label=f'{segment} Segment')
+    ax1.set_xlabel('Total Number of Sensors')
     ax1.set_ylabel('Frequency')
-    ax1.set_title('Distribution of Top 5 SensorTypes (by mean count)')
-    ax1.legend(fontsize=8)
+    ax1.set_title('Total Sensor Count Distribution by Segment')
+    ax1.legend()
     ax1.grid(True, alpha=0.3)
 
-    ax2 = axes2[0, 1]
-    box_data = [results[st] for st in top5_seg]
-    bp = ax2.boxplot(box_data, tick_labels=top5_seg, patch_artist=True)
-    for patch in bp['boxes']:
-        patch.set_facecolor('lightblue')
-    ax2.tick_params(axis='x', rotation=30)
-    ax2.set_ylabel('Sensor Count')
-    ax2.set_title('Top 5 SensorTypes - Boxplot')
+    ax2 = axes[0, 1]
+    box_data = [all_segment_results[seg]['total'] for seg in segments]
+    bp = ax2.boxplot(box_data, tick_labels=segments, patch_artist=True)
+    colors = ['lightblue', 'lightgreen', 'lightcoral']
+    for patch, color in zip(bp['boxes'], colors):
+        patch.set_facecolor(color)
+    ax2.set_ylabel('Total Number of Sensors')
+    ax2.set_title('Total Sensor Count by Segment')
     ax2.grid(True, alpha=0.3, axis='y')
 
-    ax3 = axes2[1, 0]
-    ax3.hist(results['total'], bins=50, alpha=0.7, color='purple')
-    ax3.axvline(stats['total']['mean'], color='red', linestyle='--', linewidth=2,
-                label=f"Mean: {stats['total']['mean']:.0f}")
-    ax3.axvline(stats['total']['p025'], color='orange', linestyle='--', linewidth=1.5,
-                label=f"P025: {stats['total']['p025']:.0f}")
-    ax3.axvline(stats['total']['p975'], color='orange', linestyle='--', linewidth=1.5,
-                label=f"P975: {stats['total']['p975']:.0f}")
-    ax3.set_xlabel('Total Number of Sensors')
-    ax3.set_ylabel('Frequency')
-    ax3.set_title('Distribution of Total Sensor Count')
-    ax3.legend()
-    ax3.grid(True, alpha=0.3)
+    ax3 = axes[1, 0]
+    x = np.arange(len(segments))
+    means = [all_stats[seg]['total']['mean'] for seg in segments]
+    stds = [all_stats[seg]['total']['std'] for seg in segments]
+    ax3.bar(x, means, yerr=stds, capsize=5, color=colors)
+    ax3.set_xlabel('Segment')
+    ax3.set_ylabel('Mean Total Sensor Count')
+    ax3.set_title('Mean Total Sensor Count by Segment')
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(segments)
+    ax3.grid(True, alpha=0.3, axis='y')
 
-    ax4 = axes2[1, 1]
-    sens = all_sensitivity[segment]['variance_contrib']
-    top5_var = sorted(sensor_types, key=lambda st: (sens[st] if sens[st] == sens[st] else -1), reverse=True)[:5]
-    vals = [sens[st] * 100 for st in top5_var]
-    ax4.barh(top5_var, vals, color='teal')
-    ax4.set_xlabel('Variance Contribution to Total (%)')
-    ax4.set_title('Top 5 SensorTypes by Variance Contribution')
-    ax4.grid(True, alpha=0.3, axis='x')
-
-    plt.tight_layout()
-    plt.savefig(SCRIPT_DIR / 'figures_monte_carlo' / f'sensor_monte_carlo_{segment}_segment.png',
-                dpi=300, bbox_inches='tight')
-    print(f"✓ Saved: figures_monte_carlo/sensor_monte_carlo_{segment}_segment.png")
-
-# Figure 3: Sensitivity Analysis by Segment
-fig3, axes3 = plt.subplots(2, 3, figsize=(18, 12))
-fig3.suptitle('Sensitivity Analysis by Segment (Top 5 SensorTypes)', fontsize=16, fontweight='bold')
-
-for idx, segment in enumerate(segments):
-    sens = all_sensitivity[segment]['variance_contrib']
-    corr = all_sensitivity[segment]['correlations']
-    top5_var = sorted(sensor_types, key=lambda st: (sens[st] if sens[st] == sens[st] else -1), reverse=True)[:5]
-
-    ax = axes3[0, idx]
-    contributions = [sens[st] for st in top5_var]
-    colors_pie = plt.cm.Set3(np.linspace(0, 1, len(top5_var)))
-    ax.pie(contributions, labels=top5_var, autopct='%1.1f%%', colors=colors_pie, startangle=90,
-           textprops={'fontsize': 7})
-    ax.set_title(f'{segment} Segment: Variance Contribution')
-
-    ax2 = axes3[1, idx]
-    corr_values = [corr[st] for st in top5_var]
-    ax2.bar(range(len(top5_var)), corr_values, color=colors_pie)
-    ax2.set_xticks(range(len(top5_var)))
-    ax2.set_xticklabels(top5_var, rotation=45, ha='right', fontsize=7)
-    ax2.set_ylabel('Correlation with Total')
-    ax2.set_title(f'{segment} Segment: Correlations')
-    ax2.set_ylim([0, 1])
-    ax2.grid(True, alpha=0.3, axis='y')
-
-plt.tight_layout()
-plt.savefig(SCRIPT_DIR / 'figures_sensitivity' / 'sensor_sensitivity_by_segment.png', dpi=300, bbox_inches='tight')
-print("✓ Saved: figures_sensitivity/sensor_sensitivity_by_segment.png")
-
-plt.show(block=False)
-plt.pause(5)
-
-
-# ============================================================================
-# SAVE RESULTS (segment-level, all sensor types + total)
-# ============================================================================
-
-print("\n" + "="*70)
-print("SAVING RESULTS")
-print("="*70)
-
-for segment in segments:
-    results_df = pd.DataFrame(all_segment_results[segment])
-    results_df.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / f'sensor_monte_carlo_{segment}_detailed_results.csv',
-                       index=False)
-    print(f"✓ Saved: csv_monte_carlo/sensor_monte_carlo_{segment}_detailed_results.csv")
-
-for segment in segments:
-    stats_df = pd.DataFrame(all_stats[segment]).T
-    stats_df.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / f'sensor_monte_carlo_{segment}_summary_stats.csv')
-    print(f"✓ Saved: csv_monte_carlo/sensor_monte_carlo_{segment}_summary_stats.csv")
-
-comparison_df.to_csv(SCRIPT_DIR / 'csv_segment' / 'sensor_segment_comparison.csv', index=False)
-print("✓ Saved: csv_segment/sensor_segment_comparison.csv")
-
-for segment in segments:
-    sens = all_sensitivity[segment]
-    sensitivity_df = pd.DataFrame({
-        'SensorType': sensor_types,
-        'Variance_Contribution': [sens['variance_contrib'][st] for st in sensor_types],
-        'Correlation_with_Total': [sens['correlations'][st] for st in sensor_types]
-    }).sort_values('Variance_Contribution', ascending=False)
-    sensitivity_df.to_csv(SCRIPT_DIR / 'csv_sensitivity' / f'sensor_sensitivity_{segment}_segment.csv', index=False)
-    print(f"✓ Saved: csv_sensitivity/sensor_sensitivity_{segment}_segment.csv")
-
-
-# ============================================================================
-# DOMAIN COMPARISON VISUALIZATIONS
-# ============================================================================
-
-print("\n" + "="*70)
-print("GENERATING DOMAIN-SPECIFIC VISUALIZATIONS")
-print("="*70)
-
-for segment in segments:
-    fig, axes = plt.subplots(1, 2, figsize=(18, 8))
-    fig.suptitle(f'{segment} Segment - Sensor Count by Domain', fontsize=16, fontweight='bold')
-
-    ax1 = axes[0]
-    domain_means = [domain_stats[segment][d]['mean'] for d in domains]
-    domain_stds = [domain_stats[segment][d]['std'] for d in domains]
-    order = np.argsort(domain_means)[::-1]
-    domains_sorted = [domains[i] for i in order]
-    means_sorted = [domain_means[i] for i in order]
-    stds_sorted = [domain_stds[i] for i in order]
-    colors_dom = plt.cm.tab20(np.linspace(0, 1, len(domains)))
-    ax1.barh(domains_sorted, means_sorted, xerr=stds_sorted, capsize=3, color=colors_dom)
-    ax1.set_xlabel('Mean Sensor Count')
-    ax1.set_title('Mean Sensor Count by Domain')
-    ax1.grid(True, alpha=0.3, axis='x')
-    ax1.invert_yaxis()
-
-    ax2 = axes[1]
-    top3_domains = domains_sorted[:3]
-    for d in top3_domains:
-        ax2.hist(domain_segment_results[segment][d], bins=50, alpha=0.5, label=d)
-    ax2.set_xlabel('Sensor Count')
-    ax2.set_ylabel('Frequency')
-    ax2.set_title('Distribution for Top 3 Domains (by mean)')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
+    ax4 = axes[1, 1]
+    top5 = sorted(sensor_types, key=lambda st: all_stats['EF'][st]['mean'], reverse=True)[:5]
+    width = 0.25
+    for i, segment in enumerate(segments):
+        vals = [all_stats[segment][st]['mean'] for st in top5]
+        ax4.bar(np.arange(len(top5)) + (i - 1) * width, vals, width, label=f'{segment} Segment')
+    ax4.set_xticks(np.arange(len(top5)))
+    ax4.set_xticklabels(top5, rotation=30, ha='right')
+    ax4.set_ylabel('Mean Sensor Count')
+    ax4.set_title('Top 5 Sensor Types by Mean Count (E-F) Across Segments')
+    ax4.legend()
+    ax4.grid(True, alpha=0.3, axis='y')
 
     plt.tight_layout()
-    plt.savefig(SCRIPT_DIR / 'figures_domain' / f'sensor_domain_analysis_{segment}_segment.png',
-                dpi=300, bbox_inches='tight')
-    print(f"✓ Saved: figures_domain/sensor_domain_analysis_{segment}_segment.png")
+    plt.savefig(SCRIPT_DIR / 'figures_segment' / 'sensor_segment_comparison.png', dpi=300, bbox_inches='tight')
+    print("✓ Saved: figures_segment/sensor_segment_comparison.png")
 
-# Cross-Segment Domain Comparison
-n_domains = len(domains)
-ncols = 4
-nrows = int(np.ceil(n_domains / ncols))
-fig_cross, axes_cross = plt.subplots(nrows, ncols, figsize=(20, 4 * nrows))
-fig_cross.suptitle('Sensor Count by Domain Across Segments', fontsize=16, fontweight='bold')
-axes_cross_flat = axes_cross.flatten()
-
-for idx, domain in enumerate(domains):
-    ax = axes_cross_flat[idx]
-    seg_means = [domain_stats[seg][domain]['mean'] for seg in segments]
-    seg_stds = [domain_stats[seg][domain]['std'] for seg in segments]
-    x_pos = np.arange(len(segments))
-    ax.bar(x_pos, seg_means, yerr=seg_stds, capsize=5, color=['lightblue', 'lightgreen', 'lightcoral'])
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels(segments)
-    ax.set_ylabel('Mean Sensor Count')
-    ax.set_title(domain, fontsize=10)
-    ax.grid(True, alpha=0.3, axis='y')
-
-for idx in range(n_domains, len(axes_cross_flat)):
-    axes_cross_flat[idx].axis('off')
-
-plt.tight_layout()
-plt.savefig(SCRIPT_DIR / 'figures_domain' / 'sensor_domain_cross_segment_comparison.png',
-            dpi=300, bbox_inches='tight')
-print("✓ Saved: figures_domain/sensor_domain_cross_segment_comparison.png")
-
-plt.show(block=False)
-plt.pause(5)
-
-
-# ============================================================================
-# SAVE DOMAIN-SPECIFIC RESULTS
-# ============================================================================
-
-print("\n" + "="*70)
-print("SAVING DOMAIN-SPECIFIC RESULTS")
-print("="*70)
-
-for segment in segments:
-    summary_data = []
-    for domain in domains:
-        st = domain_stats[segment][domain]
-        summary_data.append({
-            'Domain': domain,
-            'Mean_Sensor_Count': st['mean'],
-            'Mode_Sensor_Count': st['mode'],
-            'Median_Sensor_Count': st['median'],
-            'Std_Sensor_Count': st['std'],
-            'P025_Sensor_Count': st['p025'],
-            'P975_Sensor_Count': st['p975'],
-        })
-    summary_df = pd.DataFrame(summary_data).sort_values('Mean_Sensor_Count', ascending=False)
-    filename = SCRIPT_DIR / 'csv_domain' / f'sensor_domain_summary_{segment}_segment.csv'
-    summary_df.to_csv(filename, index=False)
-    print(f"✓ Saved: csv_domain/sensor_domain_summary_{segment}_segment.csv")
-
-cross_rows = []
-for domain in domains:
+    # Figure 2: Detailed Results for Each Segment (grand total + top sensor types)
     for segment in segments:
-        st = domain_stats[segment][domain]
-        cross_rows.append({
-            'Domain': domain,
-            'Segment': segment,
-            'Mean_Sensor_Count': st['mean'],
-            'Mode_Sensor_Count': st['mode'],
-            'Median_Sensor_Count': st['median'],
-            'Std_Sensor_Count': st['std'],
-            'P025_Sensor_Count': st['p025'],
-            'P975_Sensor_Count': st['p975'],
-        })
+        results = all_segment_results[segment]
+        stats = all_stats[segment]
 
-cross_df = pd.DataFrame(cross_rows)
-cross_df.to_csv(SCRIPT_DIR / 'csv_domain' / 'sensor_domain_cross_segment_comparison.csv', index=False)
-print("✓ Saved: csv_domain/sensor_domain_cross_segment_comparison.csv")
+        fig2, axes2 = plt.subplots(2, 2, figsize=(14, 10))
+        fig2.suptitle(f'BEV Sensor Count Monte Carlo Results - {segment} Segment', fontsize=16, fontweight='bold')
 
-print("\n" + "="*70)
-print("ANALYSIS COMPLETE!")
-print("="*70)
+        top5_seg = sorted(sensor_types, key=lambda st: stats[st]['mean'], reverse=True)[:5]
+
+        ax1 = axes2[0, 0]
+        for st in top5_seg:
+            ax1.hist(results[st], bins=50, alpha=0.5, label=st)
+        ax1.set_xlabel('Sensor Count')
+        ax1.set_ylabel('Frequency')
+        ax1.set_title('Distribution of Top 5 SensorTypes (by mean count)')
+        ax1.legend(fontsize=8)
+        ax1.grid(True, alpha=0.3)
+
+        ax2 = axes2[0, 1]
+        box_data = [results[st] for st in top5_seg]
+        bp = ax2.boxplot(box_data, tick_labels=top5_seg, patch_artist=True)
+        for patch in bp['boxes']:
+            patch.set_facecolor('lightblue')
+        ax2.tick_params(axis='x', rotation=30)
+        ax2.set_ylabel('Sensor Count')
+        ax2.set_title('Top 5 SensorTypes - Boxplot')
+        ax2.grid(True, alpha=0.3, axis='y')
+
+        ax3 = axes2[1, 0]
+        ax3.hist(results['total'], bins=50, alpha=0.7, color='purple')
+        ax3.axvline(stats['total']['mean'], color='red', linestyle='--', linewidth=2,
+                    label=f"Mean: {stats['total']['mean']:.0f}")
+        ax3.axvline(stats['total']['p025'], color='orange', linestyle='--', linewidth=1.5,
+                    label=f"P025: {stats['total']['p025']:.0f}")
+        ax3.axvline(stats['total']['p975'], color='orange', linestyle='--', linewidth=1.5,
+                    label=f"P975: {stats['total']['p975']:.0f}")
+        ax3.set_xlabel('Total Number of Sensors')
+        ax3.set_ylabel('Frequency')
+        ax3.set_title('Distribution of Total Sensor Count')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+
+        ax4 = axes2[1, 1]
+        sens = all_sensitivity[segment]['variance_contrib']
+        top5_var = sorted(sensor_types, key=lambda st: (sens[st] if sens[st] == sens[st] else -1), reverse=True)[:5]
+        vals = [sens[st] * 100 for st in top5_var]
+        ax4.barh(top5_var, vals, color='teal')
+        ax4.set_xlabel('Variance Contribution to Total (%)')
+        ax4.set_title('Top 5 SensorTypes by Variance Contribution')
+        ax4.grid(True, alpha=0.3, axis='x')
+
+        plt.tight_layout()
+        plt.savefig(SCRIPT_DIR / 'figures_monte_carlo' / f'sensor_monte_carlo_{segment}_segment.png',
+                    dpi=300, bbox_inches='tight')
+        print(f"✓ Saved: figures_monte_carlo/sensor_monte_carlo_{segment}_segment.png")
+
+    # Figure 3: Sensitivity Analysis by Segment
+    fig3, axes3 = plt.subplots(2, 3, figsize=(18, 12))
+    fig3.suptitle('Sensitivity Analysis by Segment (Top 5 SensorTypes)', fontsize=16, fontweight='bold')
+
+    for idx, segment in enumerate(segments):
+        sens = all_sensitivity[segment]['variance_contrib']
+        corr = all_sensitivity[segment]['correlations']
+        top5_var = sorted(sensor_types, key=lambda st: (sens[st] if sens[st] == sens[st] else -1), reverse=True)[:5]
+
+        ax = axes3[0, idx]
+        contributions = [sens[st] for st in top5_var]
+        colors_pie = plt.cm.Set3(np.linspace(0, 1, len(top5_var)))
+        ax.pie(contributions, labels=top5_var, autopct='%1.1f%%', colors=colors_pie, startangle=90,
+               textprops={'fontsize': 7})
+        ax.set_title(f'{segment} Segment: Variance Contribution')
+
+        ax2 = axes3[1, idx]
+        corr_values = [corr[st] for st in top5_var]
+        ax2.bar(range(len(top5_var)), corr_values, color=colors_pie)
+        ax2.set_xticks(range(len(top5_var)))
+        ax2.set_xticklabels(top5_var, rotation=45, ha='right', fontsize=7)
+        ax2.set_ylabel('Correlation with Total')
+        ax2.set_title(f'{segment} Segment: Correlations')
+        ax2.set_ylim([0, 1])
+        ax2.grid(True, alpha=0.3, axis='y')
+
+    plt.tight_layout()
+    plt.savefig(SCRIPT_DIR / 'figures_sensitivity' / 'sensor_sensitivity_by_segment.png', dpi=300, bbox_inches='tight')
+    print("✓ Saved: figures_sensitivity/sensor_sensitivity_by_segment.png")
+
+    plt.show(block=False)
+    plt.pause(5)
 
 
-# ============================================================================
-# SAVE HISTOGRAM DISTRIBUTIONS FOR BOOTSTRAPPING
-# ============================================================================
+    # ============================================================================
+    # SAVE RESULTS (segment-level, all sensor types + total)
+    # ============================================================================
 
-print("\n" + "="*70)
-print("SAVING HISTOGRAM DISTRIBUTIONS FOR BOOTSTRAPPING")
-print("="*70)
+    print("\n" + "="*70)
+    print("SAVING RESULTS")
+    print("="*70)
 
-n_bins = 50
-all_histograms = {}
+    for segment in segments:
+        results_df = pd.DataFrame(all_segment_results[segment])
+        results_df.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / f'sensor_monte_carlo_{segment}_detailed_results.csv',
+                           index=False)
+        print(f"✓ Saved: csv_monte_carlo/sensor_monte_carlo_{segment}_detailed_results.csv")
 
-def safe_filename(s):
-    """Make a sensor type name filesystem-safe."""
-    s = re.sub(r'[^\w\-]+', '_', s)
-    return s.strip('_')
+    for segment in segments:
+        stats_df = pd.DataFrame(all_stats[segment]).T
+        stats_df.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / f'sensor_monte_carlo_{segment}_summary_stats.csv')
+        print(f"✓ Saved: csv_monte_carlo/sensor_monte_carlo_{segment}_summary_stats.csv")
 
-# 1. Save segment-level distributions (Total + every combined SensorType)
-print("\nSaving segment-level sensor count distributions...")
-for segment in segments:
-    results = all_segment_results[segment]
-    segment_histograms = {}
+    comparison_df.to_csv(SCRIPT_DIR / 'csv_segment' / 'sensor_segment_comparison.csv', index=False)
+    print("✓ Saved: csv_segment/sensor_segment_comparison.csv")
 
-    for metric in ['total'] + sensor_types:
-        values = results[metric]
-        counts, bin_edges = np.histogram(values, bins=n_bins)
-        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    for segment in segments:
+        sens = all_sensitivity[segment]
+        sensitivity_df = pd.DataFrame({
+            'SensorType': sensor_types,
+            'Variance_Contribution': [sens['variance_contrib'][st] for st in sensor_types],
+            'Correlation_with_Total': [sens['correlations'][st] for st in sensor_types]
+        }).sort_values('Variance_Contribution', ascending=False)
+        sensitivity_df.to_csv(SCRIPT_DIR / 'csv_sensitivity' / f'sensor_sensitivity_{segment}_segment.csv', index=False)
+        print(f"✓ Saved: csv_sensitivity/sensor_sensitivity_{segment}_segment.csv")
 
-        segment_histograms[metric] = {
-            'counts': counts, 'bin_edges': bin_edges, 'bin_centers': bin_centers
-        }
 
-        hist_df = pd.DataFrame({
-            'bin_center': bin_centers,
-            'bin_left_edge': bin_edges[:-1],
-            'bin_right_edge': bin_edges[1:],
-            'count': counts,
-            'frequency': counts / ndraws
-        })
+    # ============================================================================
+    # DOMAIN COMPARISON VISUALIZATIONS
+    # ============================================================================
 
-        metric_name = 'total' if metric == 'total' else safe_filename(metric)
-        filename = SCRIPT_DIR / 'histograms' / f'histogram_{segment}_{metric_name}.csv'
-        hist_df.to_csv(filename, index=False)
+    print("\n" + "="*70)
+    print("GENERATING DOMAIN-SPECIFIC VISUALIZATIONS")
+    print("="*70)
 
-    all_histograms[segment] = segment_histograms
-    print(f"  ✓ Saved {len(sensor_types) + 1} histograms for {segment} segment")
+    for segment in segments:
+        fig, axes = plt.subplots(1, 2, figsize=(18, 8))
+        fig.suptitle(f'{segment} Segment - Sensor Count by Domain', fontsize=16, fontweight='bold')
 
-# 2. Save domain-level total distributions
-print("\nSaving domain-level sensor count distributions...")
-for segment in segments:
+        ax1 = axes[0]
+        domain_means = [domain_stats[segment][d]['mean'] for d in domains]
+        domain_stds = [domain_stats[segment][d]['std'] for d in domains]
+        order = np.argsort(domain_means)[::-1]
+        domains_sorted = [domains[i] for i in order]
+        means_sorted = [domain_means[i] for i in order]
+        stds_sorted = [domain_stds[i] for i in order]
+        colors_dom = plt.cm.tab20(np.linspace(0, 1, len(domains)))
+        ax1.barh(domains_sorted, means_sorted, xerr=stds_sorted, capsize=3, color=colors_dom)
+        ax1.set_xlabel('Mean Sensor Count')
+        ax1.set_title('Mean Sensor Count by Domain')
+        ax1.grid(True, alpha=0.3, axis='x')
+        ax1.invert_yaxis()
+
+        ax2 = axes[1]
+        top3_domains = domains_sorted[:3]
+        for d in top3_domains:
+            ax2.hist(domain_segment_results[segment][d], bins=50, alpha=0.5, label=d)
+        ax2.set_xlabel('Sensor Count')
+        ax2.set_ylabel('Frequency')
+        ax2.set_title('Distribution for Top 3 Domains (by mean)')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.savefig(SCRIPT_DIR / 'figures_domain' / f'sensor_domain_analysis_{segment}_segment.png',
+                    dpi=300, bbox_inches='tight')
+        print(f"✓ Saved: figures_domain/sensor_domain_analysis_{segment}_segment.png")
+
+    # Cross-Segment Domain Comparison
+    n_domains = len(domains)
+    ncols = 4
+    nrows = int(np.ceil(n_domains / ncols))
+    fig_cross, axes_cross = plt.subplots(nrows, ncols, figsize=(20, 4 * nrows))
+    fig_cross.suptitle('Sensor Count by Domain Across Segments', fontsize=16, fontweight='bold')
+    axes_cross_flat = axes_cross.flatten()
+
+    for idx, domain in enumerate(domains):
+        ax = axes_cross_flat[idx]
+        seg_means = [domain_stats[seg][domain]['mean'] for seg in segments]
+        seg_stds = [domain_stats[seg][domain]['std'] for seg in segments]
+        x_pos = np.arange(len(segments))
+        ax.bar(x_pos, seg_means, yerr=seg_stds, capsize=5, color=['lightblue', 'lightgreen', 'lightcoral'])
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(segments)
+        ax.set_ylabel('Mean Sensor Count')
+        ax.set_title(domain, fontsize=10)
+        ax.grid(True, alpha=0.3, axis='y')
+
+    for idx in range(n_domains, len(axes_cross_flat)):
+        axes_cross_flat[idx].axis('off')
+
+    plt.tight_layout()
+    plt.savefig(SCRIPT_DIR / 'figures_domain' / 'sensor_domain_cross_segment_comparison.png',
+                dpi=300, bbox_inches='tight')
+    print("✓ Saved: figures_domain/sensor_domain_cross_segment_comparison.png")
+
+    plt.show(block=False)
+    plt.pause(5)
+
+
+    # ============================================================================
+    # SAVE DOMAIN-SPECIFIC RESULTS
+    # ============================================================================
+
+    print("\n" + "="*70)
+    print("SAVING DOMAIN-SPECIFIC RESULTS")
+    print("="*70)
+
+    for segment in segments:
+        summary_data = []
+        for domain in domains:
+            st = domain_stats[segment][domain]
+            summary_data.append({
+                'Domain': domain,
+                'Mean_Sensor_Count': st['mean'],
+                'Mode_Sensor_Count': st['mode'],
+                'Median_Sensor_Count': st['median'],
+                'Std_Sensor_Count': st['std'],
+                'P025_Sensor_Count': st['p025'],
+                'P975_Sensor_Count': st['p975'],
+            })
+        summary_df = pd.DataFrame(summary_data).sort_values('Mean_Sensor_Count', ascending=False)
+        filename = SCRIPT_DIR / 'csv_domain' / f'sensor_domain_summary_{segment}_segment.csv'
+        summary_df.to_csv(filename, index=False)
+        print(f"✓ Saved: csv_domain/sensor_domain_summary_{segment}_segment.csv")
+
+    cross_rows = []
     for domain in domains:
-        values = domain_segment_results[segment][domain]
-        counts, bin_edges = np.histogram(values, bins=n_bins)
-        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        for segment in segments:
+            st = domain_stats[segment][domain]
+            cross_rows.append({
+                'Domain': domain,
+                'Segment': segment,
+                'Mean_Sensor_Count': st['mean'],
+                'Mode_Sensor_Count': st['mode'],
+                'Median_Sensor_Count': st['median'],
+                'Std_Sensor_Count': st['std'],
+                'P025_Sensor_Count': st['p025'],
+                'P975_Sensor_Count': st['p975'],
+            })
 
-        hist_df = pd.DataFrame({
-            'bin_center': bin_centers,
-            'bin_left_edge': bin_edges[:-1],
-            'bin_right_edge': bin_edges[1:],
-            'count': counts,
-            'frequency': counts / ndraws
-        })
+    cross_df = pd.DataFrame(cross_rows)
+    cross_df.to_csv(SCRIPT_DIR / 'csv_domain' / 'sensor_domain_cross_segment_comparison.csv', index=False)
+    print("✓ Saved: csv_domain/sensor_domain_cross_segment_comparison.csv")
 
-        domain_name = safe_filename(domain)
-        filename = SCRIPT_DIR / 'histograms' / f'histogram_{segment}_domain_{domain_name}.csv'
-        hist_df.to_csv(filename, index=False)
-    print(f"  ✓ Saved {len(domains)} domain histograms for {segment} segment")
+    print("\n" + "="*70)
+    print("ANALYSIS COMPLETE!")
+    print("="*70)
 
-# 3. Save raw distribution data (for exact bootstrapping)
-print("\nSaving raw distribution data...")
 
-for segment in segments:
-    results_df = pd.DataFrame(all_segment_results[segment])
-    filename = SCRIPT_DIR / 'raw_data' / f'raw_distribution_{segment}_segment.csv'
-    results_df.to_csv(filename, index=False)
-    print(f"  ✓ Saved: raw_data/raw_distribution_{segment}_segment.csv")
+    # ============================================================================
+    # SAVE HISTOGRAM DISTRIBUTIONS FOR BOOTSTRAPPING
+    # ============================================================================
 
-for segment in segments:
-    domain_df = pd.DataFrame(domain_segment_results[segment])
-    filename = SCRIPT_DIR / 'raw_data' / f'raw_distribution_{segment}_domains.csv'
-    domain_df.to_csv(filename, index=False)
-    print(f"  ✓ Saved: raw_data/raw_distribution_{segment}_domains.csv")
+    print("\n" + "="*70)
+    print("SAVING HISTOGRAM DISTRIBUTIONS FOR BOOTSTRAPPING")
+    print("="*70)
 
-# 4. Master index file
-print("\nCreating master index file...")
+    n_bins = 50
+    all_histograms = {}
 
-index_data = []
-for segment in segments:
-    for metric in ['total'] + sensor_types:
-        metric_name = 'total' if metric == 'total' else safe_filename(metric)
-        index_data.append({
-            'type': 'sensor_type' if metric != 'total' else 'total',
-            'segment': segment,
-            'label': metric,
-            'histogram_file': f'histograms/histogram_{segment}_{metric_name}.csv',
-            'raw_data_file': f'raw_data/raw_distribution_{segment}_segment.csv',
-            'n_simulations': ndraws,
-            'n_bins': n_bins
-        })
+    def safe_filename(s):
+        """Make a sensor type name filesystem-safe."""
+        s = re.sub(r'[^\w\-]+', '_', s)
+        return s.strip('_')
 
-for segment in segments:
-    for domain in domains:
-        domain_name = safe_filename(domain)
-        index_data.append({
-            'type': 'domain',
-            'segment': segment,
-            'label': domain,
-            'histogram_file': f'histograms/histogram_{segment}_domain_{domain_name}.csv',
-            'raw_data_file': f'raw_data/raw_distribution_{segment}_domains.csv',
-            'n_simulations': ndraws,
-            'n_bins': n_bins
-        })
+    # 1. Save segment-level distributions (Total + every combined SensorType)
+    print("\nSaving segment-level sensor count distributions...")
+    for segment in segments:
+        results = all_segment_results[segment]
+        segment_histograms = {}
 
-index_df = pd.DataFrame(index_data)
-index_df.to_csv(SCRIPT_DIR / 'distribution_index.csv', index=False)
-print("  ✓ Saved: distribution_index.csv")
+        for metric in ['total'] + sensor_types:
+            values = results[metric]
+            counts, bin_edges = np.histogram(values, bins=n_bins)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-print("\n" + "="*70)
-print("HISTOGRAM DISTRIBUTIONS SAVED!")
-print("="*70)
-print(f"\nTotal sensor types (combined, normalized): {len(sensor_types)}")
-print(f"Total domains: {len(domains)}")
-print(f"Total histogram files: {len(segments) * (len(sensor_types) + 1 + len(domains))}")
-print(f"Total raw data files: {len(segments) * 2}")
+            segment_histograms[metric] = {
+                'counts': counts, 'bin_edges': bin_edges, 'bin_centers': bin_centers
+            }
+
+            hist_df = pd.DataFrame({
+                'bin_center': bin_centers,
+                'bin_left_edge': bin_edges[:-1],
+                'bin_right_edge': bin_edges[1:],
+                'count': counts,
+                'frequency': counts / ndraws
+            })
+
+            metric_name = 'total' if metric == 'total' else safe_filename(metric)
+            filename = SCRIPT_DIR / 'histograms' / f'histogram_{segment}_{metric_name}.csv'
+            hist_df.to_csv(filename, index=False)
+
+        all_histograms[segment] = segment_histograms
+        print(f"  ✓ Saved {len(sensor_types) + 1} histograms for {segment} segment")
+
+    # 2. Save domain-level total distributions
+    print("\nSaving domain-level sensor count distributions...")
+    for segment in segments:
+        for domain in domains:
+            values = domain_segment_results[segment][domain]
+            counts, bin_edges = np.histogram(values, bins=n_bins)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+            hist_df = pd.DataFrame({
+                'bin_center': bin_centers,
+                'bin_left_edge': bin_edges[:-1],
+                'bin_right_edge': bin_edges[1:],
+                'count': counts,
+                'frequency': counts / ndraws
+            })
+
+            domain_name = safe_filename(domain)
+            filename = SCRIPT_DIR / 'histograms' / f'histogram_{segment}_domain_{domain_name}.csv'
+            hist_df.to_csv(filename, index=False)
+        print(f"  ✓ Saved {len(domains)} domain histograms for {segment} segment")
+
+    # 3. Save raw distribution data (for exact bootstrapping)
+    print("\nSaving raw distribution data...")
+
+    for segment in segments:
+        results_df = pd.DataFrame(all_segment_results[segment])
+        filename = SCRIPT_DIR / 'raw_data' / f'raw_distribution_{segment}_segment.csv'
+        results_df.to_csv(filename, index=False)
+        print(f"  ✓ Saved: raw_data/raw_distribution_{segment}_segment.csv")
+
+    for segment in segments:
+        domain_df = pd.DataFrame(domain_segment_results[segment])
+        filename = SCRIPT_DIR / 'raw_data' / f'raw_distribution_{segment}_domains.csv'
+        domain_df.to_csv(filename, index=False)
+        print(f"  ✓ Saved: raw_data/raw_distribution_{segment}_domains.csv")
+
+    # 4. Master index file
+    print("\nCreating master index file...")
+
+    index_data = []
+    for segment in segments:
+        for metric in ['total'] + sensor_types:
+            metric_name = 'total' if metric == 'total' else safe_filename(metric)
+            index_data.append({
+                'type': 'sensor_type' if metric != 'total' else 'total',
+                'segment': segment,
+                'label': metric,
+                'histogram_file': f'histograms/histogram_{segment}_{metric_name}.csv',
+                'raw_data_file': f'raw_data/raw_distribution_{segment}_segment.csv',
+                'n_simulations': ndraws,
+                'n_bins': n_bins
+            })
+
+    for segment in segments:
+        for domain in domains:
+            domain_name = safe_filename(domain)
+            index_data.append({
+                'type': 'domain',
+                'segment': segment,
+                'label': domain,
+                'histogram_file': f'histograms/histogram_{segment}_domain_{domain_name}.csv',
+                'raw_data_file': f'raw_data/raw_distribution_{segment}_domains.csv',
+                'n_simulations': ndraws,
+                'n_bins': n_bins
+            })
+
+    index_df = pd.DataFrame(index_data)
+    index_df.to_csv(SCRIPT_DIR / 'distribution_index.csv', index=False)
+    print("  ✓ Saved: distribution_index.csv")
+
+    print("\n" + "="*70)
+    print("HISTOGRAM DISTRIBUTIONS SAVED!")
+    print("="*70)
+    print(f"\nTotal sensor types (combined, normalized): {len(sensor_types)}")
+    print(f"Total domains: {len(domains)}")
+    print(f"Total histogram files: {len(segments) * (len(sensor_types) + 1 + len(domains))}")
+    print(f"Total raw data files: {len(segments) * 2}")

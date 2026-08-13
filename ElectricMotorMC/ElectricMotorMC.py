@@ -52,6 +52,7 @@ RNG_SEED  = 42
 # Imported rather than redeclared so there is ONE definition across the suite.
 sys.path.insert(0, str((Path(__file__).resolve().parent.parent / "tools")))
 from accumulator import N_HIST_BINS   # noqa: E402
+from vehicle_state import pick_from_uniform as _pick_from_uniform  # noqa: E402
 
 HIST_BINS = N_HIST_BINS
 TOP_N_MAT = 8
@@ -430,7 +431,7 @@ def sample_motor_counts(
     # car's -- roughly 2x the real count. A segment GROUP is one representative
     # vehicle spanning A and B, not two vehicles.
     #
-    # The external anchor is what settled it (AUX_MOTOR_ADOPTION_RESEARCH.md §1,
+    # The external anchor is what settled it (09_AUX_MOTOR_ADOPTION_RESEARCH.md §1,
     # all-motor content 40-60 per vehicle, premium >80):
     #
     #     EF summed    111.8 motors/vehicle   -- nearly 2x the top of premium
@@ -929,7 +930,7 @@ def _export_material_outputs(
 # STEP M-c, 2026-08-12 -- THE YEAR AXIS, 2020-2070
 #
 # Only motor COUNTS and MASS get a time axis. ElectricMotorElementMC stays
-# static by decision (docs/MOTOR_MODEL_DESIGN.md section 6): how many motors and
+# static by decision (docs/10_MOTOR_MODEL_DESIGN.md section 6): how many motors and
 # how heavy has sourced evidence behind it, what they are made of in 2070 does
 # not.
 #
@@ -988,7 +989,7 @@ def read_motor_scenarios():
 
     That is the same error this project forbids for architecture states:
     share-weighting a bimodal mixture collapses it to its mean and destroys the
-    band (PCB_MODEL_DESIGN.md 2.2d). The fix is the same -- draw ONE scenario
+    band (06_PCB_MODEL_DESIGN.md 2.2d). The fix is the same -- draw ONE scenario
     per vehicle, hold it across all years, and let the output be bimodal.
 
     Returns (names, weights, table) with table[(name, seg)] = (min, mode, max).
@@ -1023,7 +1024,7 @@ def read_active_scenario() -> str:
         return "SAMPLE"
 
 
-def growth_curve(rng, row, n: int, seg: str, scen) -> np.ndarray:
+def growth_curve(rng, row, n: int, seg: str, scen, state=None) -> np.ndarray:
     """(n, n_years) per-vehicle growth multiplier, 1.0 at BASE_YEAR by construction.
 
     THREE draws per vehicle, every one held across ALL years:
@@ -1033,10 +1034,21 @@ def growth_curve(rng, row, n: int, seg: str, scen) -> np.ndarray:
     A vehicle sits on ONE trajectory in ONE world for its whole life. Redrawing
     per year would average the fork away and return a smeared mean matching no
     real fleet.
+
+    Args:
+        state: optional VehicleState (tools/vehicle_state.py). Only the SCENARIO
+               is shared -- it is the one driver this model has in common with
+               the wiring model, and one car lives in one world. h and tau are
+               specific to motors and stay drawn from `rng`.
+               When None, this draws exactly what it always drew.
     """
     names, weights, table, active = scen
     if active == "SAMPLE":
-        pick = rng.choice(len(names), size=n, p=weights)
+        # Derived from a stored uniform when shared, because rng.choice consumes
+        # the generator and the wiring model would then place the same vehicle
+        # in a different world.
+        pick = (rng.choice(len(names), size=n, p=weights) if state is None
+                else _pick_from_uniform(state.u_scen, weights))
     else:
         if active not in names:
             raise ValueError(f"Control!B4 = {active!r}; expected SAMPLE or one of {names}")
@@ -1054,10 +1066,17 @@ def growth_curve(rng, row, n: int, seg: str, scen) -> np.ndarray:
 
 
 def run_year_axis(grand_totals: dict, df_growth: pd.DataFrame,
-                  rng: np.random.Generator, scen) -> pd.DataFrame:
+                  rng: np.random.Generator, scen, state=None) -> pd.DataFrame:
+    """Year-resolved motor count and mass statistics per segment.
+
+    Args:
+        state: optional VehicleState, passed through to growth_curve so the
+               scenario is shared with the wiring model. See that function.
+    """
     rows = []
     for seg, tot in grand_totals.items():
-        g = growth_curve(rng, df_growth.loc[seg], len(tot["count"]), seg, scen)
+        g = growth_curve(rng, df_growth.loc[seg], len(tot["count"]), seg, scen,
+                         state)
         for qty in ("count", "mass"):
             base = tot[qty][:, None]
             series = base * g                       # (n_draws, n_years)
@@ -1074,7 +1093,7 @@ def run_year_axis(grand_totals: dict, df_growth: pd.DataFrame,
 
 
 def validate_year_axis(df: pd.DataFrame, grand_totals: dict) -> None:
-    """M1-M4 from docs/MOTOR_MODEL_DESIGN.md section 5."""
+    """M1-M4 from docs/10_MOTOR_MODEL_DESIGN.md section 5."""
     print("\n" + "=" * 60)
     print("M-c VALIDATION")
     print("=" * 60)

@@ -920,7 +920,7 @@ print("="*80)
 # STEP P-f, 2026-08-11 -- YEAR-RESOLVED ELEMENT MASS, 2020-2070
 #
 # This model is  element mass = area x concentration.  04_ carries NO year
-# dimension (PCB_MODEL_DESIGN.md §7 open question 4), so concentration is
+# dimension (06_PCB_MODEL_DESIGN.md §7 open question 4), so concentration is
 # year-invariant and the entire time dependence of element mass is the time
 # dependence of AREA.
 #

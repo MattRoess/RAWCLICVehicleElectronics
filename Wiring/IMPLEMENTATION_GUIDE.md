@@ -3,7 +3,7 @@
 Short guide to what changed in `BevWiring.py`, how to run it, and where every
 number comes from. Written 2026-08-05.
 
-Full reasoning: `../docs/ADAS_Sensor_Adoption_Report_2025_2070.md`.
+Full reasoning: `../docs/05_ADAS_SENSOR_ADOPTION_REPORT.md`.
 Model handover: `BevWiring_STATUS.md`. Argument for the change:
 `AUTONOMY_LEVELS_VS_HARDWARE.md`.
 
@@ -27,7 +27,7 @@ the 50-bin convention and every output format are untouched.
 ## 2. Data flow
 
 ```
-docs/ADAS_Sensor_Adoption_Report_2025_2070.md      the reasoning
+docs/05_ADAS_SENSOR_ADOPTION_REPORT.md      the reasoning
         |                                                  (every number tagged
         |  make_19_adas_sensor_adoption.py                   FACT/DERIVED/ASSUMPTION)
         v
@@ -204,4 +204,4 @@ will not run without restoring those too.
    and scaled by `Presence_per_Tier`, where lidar is marked `Driver B`. What it
    does affect is the models still reading `01_` statically
    (`SensorElementsMC.py`, the PCB chain), which now see zero lidar everywhere.
-   See `docs/HANDOVER.md` §8 item 5.
+   See `docs/HANDOVER_2026-08-09.md` §8 item 5.

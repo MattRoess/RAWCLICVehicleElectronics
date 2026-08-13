@@ -23,7 +23,7 @@ Last updated 2026-08-07. This is the single handover document.
 | `Wiring/BevWiring.py` | **the model** |
 | `Wiring/IMPLEMENTATION_GUIDE.md` | **how the tier axis works, and how to switch scenarios** |
 | `Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md` | why certification was the wrong key |
-| `docs/ADAS_Sensor_Adoption_Report_2025_2070.md` | the sensor-adoption reasoning; every number tagged FACT / DERIVED / ASSUMPTION |
+| `docs/05_ADAS_SENSOR_ADOPTION_REPORT.md` | the sensor-adoption reasoning; every number tagged FACT / DERIVED / ASSUMPTION |
 | `Wiring/outputs/data/bev_wiring_stats.csv` | 20,808 rows — mean, P2.5, median, mode, P97.5, every year |
 | `Wiring/outputs/data/bev_wiring_histograms.csv` | 142,800 rows — 408 series × 7 snapshot years × **50 bins** |
 | `Wiring/outputs/plots/` | 38 figures — 8 trajectory, 30 histogram |
@@ -220,7 +220,7 @@ independent hand-calculation exactly, so it is a finding, not a bug.
 Yellow = editable. Orange = assumption with no source. Green = fact / override.
 
 `19_` is **generated** from
-`docs/ADAS_Sensor_Adoption_Report_2025_2070.md` by
+`docs/05_ADAS_SENSOR_ADOPTION_REPORT.md` by
 `tools/make_19_adas_sensor_adoption.py`. Editing the workbook works, but the next
 regeneration overwrites it — for a permanent change, edit the report and the
 generator together. Anchor years are read through PCHIP, so adding or deleting
@@ -248,7 +248,7 @@ The ADAS block still supplies roughly a quarter of the 2070 answer:
 | CD | 9% | 19% | 24% |
 | EF | 11% | 19% | 21% |
 
-**The instruction set is `docs/ADAS_Sensor_Adoption_Report_2025_2070.md`
+**The instruction set is `docs/05_ADAS_SENSOR_ADOPTION_REPORT.md`
 §6**, with the numbers in `19_` sheet `Presence_per_Tier` — 12 ADAS components
 × tiers H0–H4, already written and validated but **not yet consumed by any
 code**. `SensorNumbersMC/SENSOR_WIRING_INTERFACE.md` still holds the useful
@@ -268,7 +268,7 @@ Three warnings:
   **RESOLVED 2026-08-07:** `01_` now reads `–` (0.00) for lidar in all three
   segments. It never affected sensor counts (ADAS rows are scaled by
   `Presence_per_Tier`, where lidar is `Driver B`), but the models still reading
-  `01_` statically now see zero lidar everywhere. `docs/HANDOVER.md` §8 item 5.
+  `01_` statically now see zero lidar everywhere. `docs/HANDOVER_2026-08-09.md` §8 item 5.
 - ~~**`06_` camera counts are low** and **ultrasonics may be double-counted**.~~
   **RESOLVED 2026-08-07:** cameras raised to AB 5–6 / CD 5–10 / EF 8–10; the
   duplicate `Parking assist ECU` rows zeroed. The *"13–16 ultrasonic measured"*
