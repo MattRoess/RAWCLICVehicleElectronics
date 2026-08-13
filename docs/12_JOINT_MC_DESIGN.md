@@ -472,7 +472,33 @@ file is missing rather than inventing a band.
 
 ---
 
-## 8. Still open
+## 8. `_shift_shares` deduplicated (item A5)
+
+`BevWiring.py` carried its own copy of `shift_shares` while the sensor and PCB
+models called `drivers.shift_shares`. Same maths, two implementations, free to
+drift — the duplication the project's own rule forbids and V12 exists to catch.
+The copy is deleted; `BevWiring._shift_shares` is now an alias.
+
+**Measured before doing it**, because "mechanical" is a claim that needs testing:
+
+| | |
+|---|---|
+| shifted-share elements differing | 122,449 of 1,020,000 |
+| largest difference | 2.22e-16 (one ULP) |
+| **rows of `bev_wiring_stats.csv` that changed** | **0 of 20,808** |
+
+The internal floats differ in the last bit; **no reported number moves at all**,
+on Mean, P2.5, P97.5 or Median. The shares are consumed by a *discrete*
+comparison — `u > cumsum(shares)` selects an integer state — and a 2e-16 nudge
+essentially never flips which side of a boundary a uniform lands on. 9/9 wiring
+validations still pass.
+
+Worth recording as a general point: an intermediate difference of one ULP is not
+evidence of an output difference, and an output difference is what matters.
+
+---
+
+## 9. Still open
 
 **The shared vehicle-size factor — undecided.** Only the wiring model carries a
 per-vehicle size factor (`CV_VEHICLE = 0.10`). A big car is big in every domain,

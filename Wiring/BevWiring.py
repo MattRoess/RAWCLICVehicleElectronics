@@ -290,7 +290,8 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
 from drivers import (monotone_curve as _monotone_curve,   # noqa: E402
                      load_800v_share,
                      load_architecture_shares,
-                     load_tier_shares)
+                     load_tier_shares,
+                     shift_shares as _shared_shift_shares)
 from vehicle_state import pick_from_uniform as _pick_from_uniform  # noqa: E402
 
 
@@ -444,25 +445,25 @@ def load_inputs(years) -> Inputs:
     )
 
 
-def _shift_shares(shares, years, delta):
-    """Re-read the share curves with each iteration's own time offset.
-
-    Args:
-        shares: (n_states, n_years) marginal shares.
-        years:  (n_years,) UNIT: calendar years.
-        delta:  (n_iter,)  per-iteration offset. UNIT: years. Positive = that
-                manufacturer transitions later.
-
-    Returns:
-        (n_states, n_iter, n_years), renormalised to sum to 1 over states.
-    """
-    n_states, n_years = shares.shape
-    out = np.empty((n_states, len(delta), n_years))
-    for k in range(n_states):
-        for i, d in enumerate(delta):
-            out[k, i] = np.interp(years - d, years, shares[k])
-    out = np.clip(out, 0.0, None)
-    return out / np.maximum(out.sum(axis=0, keepdims=True), 1e-12)
+# Re-read the share curves with each iteration's own time offset.
+#
+# THIS MODEL USED TO CARRY ITS OWN COPY of this function. drivers.shift_shares
+# is the same maths, vectorised, and is what the sensor and PCB models already
+# call. Two implementations of one function is the duplication this project's
+# own rule forbids -- V12 exists to catch exactly that failure -- so the copy
+# was deleted on 2026-08-13 and this is now an alias.
+#
+# THE TWO DIFFER BY ONE ULP INTERNALLY AND NOT AT ALL IN THE OUTPUT. The deleted
+# version looped np.interp; the shared one interpolates directly. Measured over
+# 1,020,000 shifted-share elements, 122,449 differ, largest difference 2.22e-16
+# -- the last bit of a double.
+#
+# None of it reaches a reported number: all 20,808 rows of bev_wiring_stats.csv
+# are bit-identical across the change, on Mean, P2.5, P97.5 and Median alike.
+# The reason is that the shares are consumed by a DISCRETE comparison --
+# u > cumsum(shares) picks an integer state -- and a 2e-16 nudge essentially
+# never flips which side of a boundary a uniform falls on.
+_shift_shares = _shared_shift_shares
 
 
 def comonotonic_state(u, shares):
