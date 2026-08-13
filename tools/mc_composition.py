@@ -396,9 +396,52 @@ def run(n_iter=N_ITER, chunk=CHUNK, seed=SEED):
     return pd.DataFrame(stats)
 
 
+def validate(df):
+    """C1-C4 -- properties the joint band must have, whatever the inputs say.
+
+    These are not calibration checks against data; they are arithmetic facts. If
+    any fails, the summation or the accumulator is wrong, not the model.
+    """
+    piv = df.pivot_table(index=["Segment", "Year"], columns="Series",
+                         values=["Mean_g", "P2_5_g", "P97_5_g"])
+    bound = mean_in = order = 0
+    mean_err = 0.0
+    for _, r in piv.iterrows():
+        lo_b = sum(r[("P2_5_g", d)] for d in DOMAINS)
+        hi_b = sum(r[("P97_5_g", d)] for d in DOMAINS)
+        lo, hi, mn = r[("P2_5_g", "Total")], r[("P97_5_g", "Total")], r[("Mean_g", "Total")]
+        # C1 the joint band can never exceed the comonotonic bound: summing
+        #    percentiles assumes every domain peaks together, the widest case
+        if lo < lo_b - 1e-6 or hi > hi_b + 1e-6:
+            bound += 1
+        if not (lo <= mn <= hi):                                  # C2
+            mean_in += 1
+        if lo > hi:                                               # C3
+            order += 1
+        # C4 means ADD exactly, because the total was summed draw by draw --
+        #    unlike percentiles, which do not
+        mean_err = max(mean_err, abs(sum(r[("Mean_g", d)] for d in DOMAINS) - mn) / mn)
+
+    print("\n" + "=" * 74)
+    print(f"VALIDATION -- {len(piv)} (segment, year) cells")
+    print("=" * 74)
+    for tag, msg, bad in [
+            ("C1", "joint band within the comonotonic bound", bound),
+            ("C2", "mean inside its own band", mean_in),
+            ("C3", "P2.5 <= P97.5", order)]:
+        print(f"  [{'ok  ' if not bad else 'FAIL'}] {tag}  {msg:48s} {bad} bad")
+    ok4 = mean_err < 1e-9
+    print(f"  [{'ok  ' if ok4 else 'FAIL'}] C4  "
+          f"{'sum(domain means) == total mean':48s} {mean_err:.2e}")
+    n_bad = bound + mean_in + order + (0 if ok4 else 1)
+    print(f"\n  {4 - (bool(bound)+bool(mean_in)+bool(order)+(0 if ok4 else 1))}/4 passed")
+    return n_bad == 0
+
+
 if __name__ == "__main__":
     n = int(sys.argv[1]) if len(sys.argv) > 1 else N_ITER
     df = run(n_iter=n)
+    validate(df)
 
     # ---- what the joint band actually bought, against the two wrong answers
     print("\n" + "=" * 74)

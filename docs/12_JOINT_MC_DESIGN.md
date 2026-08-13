@@ -4,7 +4,8 @@
 that was not Monte Carlo. This is the record of what was wrong, what was fixed,
 and what is still open.
 
-Started 2026-08-13. Steps 1, 2 and 3 complete; step 4 outstanding.
+Started 2026-08-13. Steps 1-4 complete and validated (C1-C4). Section 8 lists
+what remains open.
 
 ---
 
@@ -411,10 +412,67 @@ of motor mass, going wrong by a third.
 
 ---
 
-## 7. Still open
+## 7. Step 4 — the figures (item A1)
 
-**Step 4 — the figures.** Rebuild the band from `joint_mc_stats.csv` and delete
-`_lognormal_from_band` entirely.
+`tools/plot_composition.py` now reads `Composition/csv/joint_mc_stats.csv`.
+`_lognormal_from_band()`, `_model_totals()`, `mc_total()` and the 40,000-draw
+resampler are **deleted**.
+
+Where every band in the figures comes from:
+
+| | source | status |
+|---|---|---|
+| domain and total bands (figs 1, 2, 3) | `joint_mc_stats.csv` | real Monte Carlo, summed per draw |
+| component bands (figs 5, 7, 8) | `Data/30_` | each model's own band, exact |
+| anything summed over components (`agg()`) | — | **comonotonic bound**, labelled as such |
+
+Two things improved beyond deleting the invention:
+
+- **Domain bands are now real too.** The old code took the *relative* width of a
+  PCB **area** band and a sensor **count** band and pasted it onto the mass mean.
+  They now come from the joint run's own per-draw domain masses.
+- **Figure 3 averages across segments instead of summing.** Adding three
+  segments' percentiles and dividing by their summed mean answers a different
+  question — the width of a fleet holding one car from each segment — and reads
+  deceptively narrow.
+
+Figure 1 draws the comonotonic bound behind the joint band, so the gap between
+"what it could be if everything moved together" and "what it is" is visible
+rather than asserted.
+
+### Validation C1–C4
+
+`mc_composition.py` now asserts four arithmetic facts over all 153
+(segment, year) cells. These are not calibration checks; if one fails the
+summation or the accumulator is wrong.
+
+| | check | result |
+|---|---|---|
+| C1 | joint band within the comonotonic bound | 0 bad |
+| C2 | mean inside its own band | 0 bad |
+| C3 | P2.5 ≤ P97.5 | 0 bad |
+| C4 | sum(domain means) == total mean | **8.79e-16** |
+
+C4 is the one that proves the summation is genuinely per-draw: means add
+exactly, to machine precision, in a way percentiles never can.
+
+### The answer
+
+Total electronics material per vehicle, mean [90% joint-MC band], kg:
+
+| segment | 2025 | 2070 | change |
+|---|---|---|---|
+| AB | 47.6 [32.3–73.9] | 36.4 [29.7–44.1] | −23.4% |
+| CD | 84.5 [60.1–127.7] | 69.8 [56.3–85.3] | −17.4% |
+| EF | 137.9 [108.3–173.6] | 130.9 [104.0–163.3] | −5.1% |
+
+**Run order matters:** `mc_composition.py` must run before
+`plot_composition.py`, which now exits with a clear message if the joint stats
+file is missing rather than inventing a band.
+
+---
+
+## 8. Still open
 
 **The shared vehicle-size factor — undecided.** Only the wiring model carries a
 per-vehicle size factor (`CV_VEHICLE = 0.10`). A big car is big in every domain,

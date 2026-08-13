@@ -1,53 +1,51 @@
 #!/usr/bin/env python3
 """Figures for the OVERALL vehicle electronics -- with the Monte Carlo ranges.
 
-    ####################################################################
-    #  THE CROSS-DOMAIN TOTAL BAND IN THIS FILE IS NOT MONTE CARLO.    #
-    #  DO NOT USE IT. Being replaced -- docs/12_JOINT_MC_DESIGN.md.    #
-    ####################################################################
-
-    _lognormal_from_band() below takes each domain's mean/P2.5/P97.5, INVENTS a
-    lognormal matching those three numbers, and sums the four domains as if they
-    were independent. The models' own draws never enter. It is wrong twice over:
-    the real distributions are bimodal through the 2030-2050 transition, which a
-    lognormal cannot represent; and three of the four domains read the SAME
-    driver workbook, so summing them as independent makes the total band too
-    NARROW. The section header below calling itself "TRUE MONTE CARLO
-    AGGREGATION" is inaccurate and is left in place only so this note has
-    something to point at.
-
-    Component-level bands (figures 5, 7, 8) are unaffected -- they come straight
-    from the models and are exact. It is the cross-domain TOTAL that is invalid.
-
-    Steps 1 and 2 of the replacement are done: every model now draws a discrete
-    per-vehicle hardware tier, and all four accept a shared VehicleState
-    (tools/vehicle_state.py) so the same simulated car appears in every domain.
-    Step 3 -- tools/mc_composition.py, summing the four masses draw by draw --
-    will supply the real band, and this function will be deleted with it.
-
+    python3 tools/mc_composition.py      # must run FIRST -- supplies the band
     python3 tools/plot_composition.py
 
-Reads  Data/30_BEV_electronics_composition.csv
+Reads  Composition/csv/joint_mc_stats.csv   the bands, from the joint Monte Carlo
+       Data/30_BEV_electronics_composition.csv   the means, split by element
 Writes Composition/figures/*.png  and  Composition/csv/*.csv
 
 THE BAND IS THE POINT. This is a Monte Carlo model; a figure showing only means
 misrepresents it. Every series here carries its 2.5-97.5 percentile range.
 
-TWO HONEST CAVEATS, applied throughout rather than footnoted:
+WHERE EVERY BAND IN THIS FILE COMES FROM
 
-1. PERCENTILES DO NOT ADD. Summing P2.5 across components implies every one sits
-   at its low simultaneously -- perfectly correlated, which they are not. Where
-   a total band is drawn from summed percentiles it is labelled a COMONOTONIC
-   BOUND: the widest the band could be, not the band. Component-level bands
-   (figures 5, 7, 8) are exact.
+    domain and total bands      joint_mc_stats.csv -- real Monte Carlo. One
+    (figures 1, 2, 3)           simulated car is pushed through all four models
+                                with the SAME shared drivers, the four masses are
+                                summed PER DRAW, and the percentiles are taken of
+                                that sum. Correlation between domains is in the
+                                answer by construction.
 
-2. THE BAND MEANS DIFFERENT THINGS BY DOMAIN, carried per row in the source file
-   as Band_meaning:
-       Wiring, PCB   full model band
-       Motors        motor count and mass only -- composition frozen at 2025
-       Sensors       sensor count only -- composition frozen at 2025
-   So the motor and sensor bands are NARROWER than the true uncertainty. They
-   omit composition, which is a deliberate scope decision, not an oversight.
+    component bands             Data/30_ -- each model's own band for that
+    (figures 5, 7, 8)           series. Exact.
+
+    anything summed across      a COMONOTONIC BOUND, labelled as such wherever
+    components (agg())          it is drawn: the widest the band could be, not
+                                the band. Percentiles do not add.
+
+WHAT THIS REPLACED, 2026-08-13. The cross-domain total used to be built by
+_lognormal_from_band(): it took each domain's mean/P2.5/P97.5, INVENTED a
+lognormal matching those three numbers, drew from the invention, and summed the
+four domains as independent. The models' own draws never entered. It was wrong
+twice over -- the real distributions are bimodal through the 2030-2050
+transition, which a lognormal cannot represent, and three of the four domains
+read the same driver workbook, so independent summing understated the total.
+That function is deleted. See docs/12_JOINT_MC_DESIGN.md.
+
+ONE HONEST CAVEAT THAT REMAINS. The band means different things by domain,
+carried per row in the source file as Band_meaning:
+
+    Wiring, PCB   full model band
+    Motors        motor count and mass only -- composition frozen at 2025
+    Sensors       sensor count only -- composition frozen at 2025
+
+So the motor and sensor bands are NARROWER than the true uncertainty. They omit
+composition, which is a deliberate scope decision (02_MODEL_STATUS.md section 3),
+not an oversight.
 """
 
 from __future__ import annotations
@@ -82,117 +80,40 @@ print(f"Loaded {len(df):,} rows,  band on {df.P2_5_g.notna().mean()*100:.0f}% of
 
 
 # ==========================================================================
-# TRUE MONTE CARLO AGGREGATION
+# THE BANDS COME FROM THE JOINT MONTE CARLO
 #
-# Summing P2.5 across components is NOT Monte Carlo. It assumes every component
-# sits at its low simultaneously -- perfect correlation -- and gives a bound,
-# not a band. Two corrections, applied everywhere below:
+# tools/mc_composition.py pushes ONE simulated car through all four models with
+# the same shared drivers, sums the four masses PER DRAW, and takes percentiles
+# of that sum. Every domain band and the total band below are read straight from
+# its output. Nothing here reconstructs, refits or re-samples a distribution.
 #
-# 1. DOMAIN TOTALS come from each model's OWN total, not from summed parts.
-#    The models draw per vehicle with shared drivers, so correlation between
-#    components inside a domain is already handled where it belongs -- inside
-#    the simulation. Reading their Total rows is the only correct source.
-#
-# 2. CROSS-DOMAIN TOTALS are propagated by SAMPLING. Each domain's distribution
-#    is reconstructed from its (mean, P2.5, P97.5) as a lognormal, drawn
-#    N_MC times, and the draws are summed before percentiles are taken. The
-#    four domains come from separate models with independent draws, so
-#    independent sampling is the right assumption between them.
-#
-# The difference is large and in the direction that matters: the summed bound
-# is far too wide.
+# The predecessor of this section invented a lognormal from three summary
+# numbers and summed the domains as independent. It is gone; see the module
+# docstring and docs/12_JOINT_MC_DESIGN.md.
 # ==========================================================================
 
-N_MC = 40000
-_rng = np.random.default_rng(7)
+JOINT = CSV / "joint_mc_stats.csv"
+if not JOINT.exists():
+    raise SystemExit(
+        f"{JOINT} not found -- run `python3 tools/mc_composition.py` first.\n"
+        f"That script IS the band; this one only draws it.")
 
+_j = pd.read_csv(JOINT)
+print(f"Loaded joint MC: {len(_j):,} rows, "
+      f"{_j.N_Iter.iloc[0]:,} draws per segment, series {sorted(_j.Series.unique())}")
 
-def _lognormal_from_band(mean, lo, hi, n):
-    """Draw n samples matching a positive series' mean and 2.5/97.5 percentiles.
-
-    Lognormal because these are positive, right-skewed mass quantities. sigma
-    comes from the percentile ratio, mu is then set so the MEAN matches (not the
-    median) -- the composition file reports means, so the reconstruction must
-    reproduce them.
-    """
-    mean = float(mean); lo = float(lo); hi = float(hi)
-    if not np.isfinite(mean) or mean <= 0:
-        return np.zeros(n)
-    if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo or lo <= 0:
-        return np.full(n, mean)                      # degenerate: a point mass
-    sigma = np.log(hi / lo) / (2 * 1.959963985)
-    sigma = float(np.clip(sigma, 1e-6, 2.5))
-    mu = np.log(mean) - 0.5 * sigma ** 2
-    return _rng.lognormal(mu, sigma, n)
-
-
-def _model_totals():
-    """Each domain's OWN total band, straight from the model that drew it."""
-    out = {}
-    f = ROOT / "Wiring" / "outputs" / "data" / "bev_wiring_stats.csv"
-    if f.exists():
-        w = pd.read_csv(f)
-        w = w[(w.Level == "Total") & (w.Metric == "Cu (kg)")]
-        for _, r in w.iterrows():
-            if str(r.Segment) in SEGMENTS:
-                out[("Wiring", str(r.Segment), int(r.Year))] = (
-                    r.Mean * 1000, r.P2_5 * 1000, r.P97_5 * 1000)
-    f = ROOT / "ElectricMotorMC" / "summary_csv" / "motor_counts_by_year.csv"
-    if f.exists():
-        m = pd.read_csv(f)
-        m = m[m.Quantity == "mass"]
-        for _, r in m.iterrows():
-            out[("Motors", str(r.Segment), int(r.Year))] = (
-                r.Mean * 1000, r.P025 * 1000, r.P975 * 1000)
-    # PCB and Sensors: the model total is an AREA / a COUNT, not a mass, so its
-    # relative width is applied to the composition mean. Shape from the model,
-    # level from the composition -- never a summed percentile.
-    for seg in SEGMENTS:
-        f = ROOT / "PCBAreaMC" / "csv_monte_carlo" / f"pcb_year_resolved_{seg}.csv"
-        if f.exists():
-            a = pd.read_csv(f)
-            for _, r in a.iterrows():
-                mass = df[(df.Domain == "PCB") & (df.Segment == seg)
-                          & (df.Year == int(r.Year))][VAL].sum()
-                if r.Mean > 0 and mass > 0:
-                    out[("PCB", seg, int(r.Year))] = (
-                        mass, mass * r.P025 / r.Mean, mass * r.P975 / r.Mean)
-    f = ROOT / "SensorNumbersMC" / "csv_monte_carlo" / "sensor_year_stats.csv"
-    if f.exists():
-        sc = pd.read_csv(f)
-        sc = sc[sc.Level == "Total"]
-        for _, r in sc.iterrows():
-            seg = str(r.Segment)
-            if seg not in SEGMENTS:
-                continue
-            mass = df[(df.Domain == "Sensors") & (df.Segment == seg)
-                      & (df.Year == int(r.Year))][VAL].sum()
-            if r.Mean > 0 and mass > 0:
-                out[("Sensors", seg, int(r.Year))] = (
-                    mass, mass * r.P025 / r.Mean, mass * r.P975 / r.Mean)
-    return out
-
-
-MT = _model_totals()
-print(f"  model-native domain totals: {len(MT):,} (domain x segment x year)")
+# (Series, Segment, Year) -> (mean_g, p2.5_g, p97.5_g)
+MT = {(r.Series, r.Segment, int(r.Year)): (r.Mean_g, r.P2_5_g, r.P97_5_g)
+      for r in _j.itertuples()}
 
 
 def domain_band(dom, seg, yr):
-    """(mean, lo, hi) for one domain -- the model's own band."""
+    """(mean, lo, hi) in grams for one domain -- from the joint Monte Carlo.
+
+    `dom` may also be "Total", which is the cross-domain sum taken draw by draw
+    rather than by adding percentiles.
+    """
     return MT.get((dom, seg, yr))
-
-
-def mc_total(seg, yr):
-    """Cross-domain total by SAMPLING the four domains and summing the draws."""
-    acc = np.zeros(N_MC)
-    for dom in DOMAINS:
-        b = domain_band(dom, seg, yr)
-        if b is None:
-            acc += df[(df.Segment == seg) & (df.Year == yr)
-                      & (df.Domain == dom)][VAL].sum()
-        else:
-            acc += _lognormal_from_band(*b, N_MC)
-    return acc.mean(), np.percentile(acc, 2.5), np.percentile(acc, 97.5)
 
 
 VAL, LO, HI = "Mass_g_per_vehicle", "P2_5_g", "P97_5_g"
@@ -212,23 +133,32 @@ def agg(d, by):
 
 kg = lambda g: np.asarray(g) / 1000.0
 
-# ==================================================== 1. TOTAL, true MC band
-years = sorted(df.Year.unique())
-mc_rows = []
-for seg in SEGMENTS:
-    for yr in years:
-        m, lo, hi = mc_total(seg, yr)
-        mc_rows.append({"Year": yr, "Segment": seg, "Mean": m, "P2_5": lo, "P97_5": hi})
-mc = pd.DataFrame(mc_rows)
+# ==================================================== 1. TOTAL, joint MC band
+# The dark band is the joint Monte Carlo: the four domains summed DRAW BY DRAW.
+# The pale band behind it is the comonotonic bound -- the four domain bands
+# added as percentages, which assumes every domain sits at its low, or its high,
+# at the same moment. It is drawn only to show how much narrower the real answer
+# is; it is not a result.
+years = sorted(y for y in df.Year.unique() if ("Total", "AB", int(y)) in MT)
+mc = pd.DataFrame([
+    {"Year": yr, "Segment": seg,
+     "Mean": MT[("Total", seg, yr)][0],
+     "P2_5": MT[("Total", seg, yr)][1],
+     "P97_5": MT[("Total", seg, yr)][2]}
+    for seg in SEGMENTS for yr in years])
 mc.to_csv(CSV / "total_mc_band.csv", index=False)
 
-# how much narrower is the correct band than the summed bound?
-summed = agg(df, ["Year", "Segment"])
+bound = pd.DataFrame([
+    {"Year": yr, "Segment": seg,
+     "P2_5": sum(domain_band(d, seg, yr)[1] for d in DOMAINS),
+     "P97_5": sum(domain_band(d, seg, yr)[2] for d in DOMAINS)}
+    for seg in SEGMENTS for yr in years])
+
 fig, ax = plt.subplots(figsize=(11, 6.5))
 for s_ in SEGMENTS:
     t = mc[mc.Segment == s_].set_index("Year").sort_index()
-    b = summed.xs(s_, level="Segment").sort_index()
-    ax.fill_between(b.index, kg(b[LO]), kg(b[HI]), color=SEG_COLOR[s_],
+    b = bound[bound.Segment == s_].set_index("Year").sort_index()
+    ax.fill_between(b.index, kg(b.P2_5), kg(b.P97_5), color=SEG_COLOR[s_],
                     alpha=0.07, lw=0)
     ax.fill_between(t.index, kg(t.P2_5), kg(t.P97_5), color=SEG_COLOR[s_],
                     alpha=0.24, lw=0)
@@ -238,9 +168,11 @@ for s_ in SEGMENTS:
                 color=SEG_COLOR[s_], fontweight="bold")
 ax.axvline(BASE, color="0.55", ls=":", lw=1)
 ax.set_xlabel("Year"); ax.set_ylabel("Material per vehicle  (kg)")
-ax.set_title("Total electronics material per vehicle\n"
-             "dark band = Monte Carlo (40,000 draws, domains sampled and summed)   ·   "
-             "pale band = naive percentile sum, for comparison", fontweight="bold")
+ax.set_title(
+    "Total electronics material per vehicle\n"
+    f"dark band = joint Monte Carlo, {int(_j.N_Iter.iloc[0]):,} draws — one car "
+    "through all four domains, summed per draw   ·   "
+    "pale band = comonotonic bound, for comparison", fontweight="bold")
 ax.grid(alpha=0.3); ax.legend(frameon=False, loc="upper right")
 ax.set_xlim(2020, END + 4)
 save(fig, "01_total_mc_band")
@@ -267,17 +199,28 @@ save(fig, "02_domains_with_band")
 
 # ================================================ 3. RELATIVE UNCERTAINTY
 fig, ax = plt.subplots(figsize=(11, 6))
-yrs = sorted(df.Year.unique())
-for dom in DOMAINS:
-    rel = []
+yrs = years
+
+
+def _rel_width(series):
+    """Mean 90% band width as % of the mean, averaged over the three segments.
+
+    Averaged, NOT summed. Adding three segments' percentiles and dividing by
+    their summed mean answers a different question -- the width of a fleet made
+    of one car from each segment -- and reads deceptively narrow.
+    """
+    out = []
     for y in yrs:
-        bs = [domain_band(dom, sg, y) for sg in SEGMENTS]
-        bs = [b for b in bs if b]
-        rel.append(np.mean([(b[2] - b[1]) / b[0] * 100 for b in bs]) if bs else np.nan)
-    ax.plot(yrs, rel, lw=2.4, color=DOM_COLOR[dom], label=dom)
-mcrel = [(mc[(mc.Year == y)].P97_5.sum() - mc[(mc.Year == y)].P2_5.sum())
-         / mc[(mc.Year == y)].Mean.sum() * 100 for y in yrs]
-ax.plot(yrs, mcrel, lw=2.8, color="0.2", ls="--", label="TOTAL (Monte Carlo)")
+        bs = [domain_band(series, sg, y) for sg in SEGMENTS]
+        bs = [b for b in bs if b and b[0] > 0]
+        out.append(np.mean([(b[2] - b[1]) / b[0] * 100 for b in bs]) if bs else np.nan)
+    return out
+
+
+for dom in DOMAINS:
+    ax.plot(yrs, _rel_width(dom), lw=2.4, color=DOM_COLOR[dom], label=dom)
+ax.plot(yrs, _rel_width("Total"), lw=2.8, color="0.2", ls="--",
+        label="TOTAL (joint Monte Carlo)")
 ax.set_xlabel("Year")
 ax.set_ylabel("90% band width as % of the mean")
 ax.set_title("How uncertain is each domain?\n"
@@ -414,11 +357,11 @@ det = (df[df.Year.isin([BASE, END])]
          [[VAL, LO, HI]].sum().round(3))
 det.to_csv(CSV / "detail_2025_2070.csv")
 
-print("\n  Total per vehicle, kg (mean [90% band]):")
+print("\n  Total per vehicle, kg (mean [90% joint-MC band]):")
 for s in SEGMENTS:
-    t = tot.xs(s, level="Segment")
-    a, b = t.loc[BASE], t.loc[END]
-    print(f"    {s}: {kg(a[VAL]):6.1f} [{kg(a[LO]):5.1f}–{kg(a[HI]):5.1f}]"
-          f"  ->  {kg(b[VAL]):6.1f} [{kg(b[LO]):5.1f}–{kg(b[HI]):5.1f}]"
-          f"   {b[VAL]/a[VAL]-1:+.1%}")
-print(f"\n  -> Composition/csv/  (4 tables)")
+    a = domain_band("Total", s, BASE)
+    b = domain_band("Total", s, END)
+    print(f"    {s}: {kg(a[0]):6.1f} [{kg(a[1]):5.1f}–{kg(a[2]):5.1f}]"
+          f"  ->  {kg(b[0]):6.1f} [{kg(b[1]):5.1f}–{kg(b[2]):5.1f}]"
+          f"   {b[0]/a[0]-1:+.1%}")
+print(f"\n  -> Composition/csv/  (5 tables)")

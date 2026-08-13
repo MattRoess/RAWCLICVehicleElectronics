@@ -65,7 +65,7 @@ Read in this order — each one depends on the last.
 
 | | | |
 |---|---|---|
-| **12** | [`12_JOINT_MC_DESIGN.md`](12_JOINT_MC_DESIGN.md) | **The joint Monte Carlo.** Why the composition band was not Monte Carlo at all, the per-vehicle tier draw that had to come first, the shared `VehicleState`, and what the measured cross-domain correlation turned out to be. **Steps 1–3 built, step 4 outstanding** |
+| **12** | [`12_JOINT_MC_DESIGN.md`](12_JOINT_MC_DESIGN.md) | **The joint Monte Carlo.** Why the composition band was not Monte Carlo at all, the per-vehicle tier draw that had to come first, the shared `VehicleState`, and what the measured cross-domain correlation turned out to be. **Steps 1–4 built, validated C1–C4** |
 
 ---
 
@@ -98,7 +98,7 @@ records what changed, what was decided, and what was left open.
 | **`Data/30_BEV_electronics_composition.csv`** | **the deliverable** — grams per vehicle by year, segment, domain, component type and element. What a stock-and-flow model consumes |
 | **`Composition/csv/joint_mc_stats.csv`** | **the joint Monte Carlo band** — mean, P2.5, median, mode, P97.5 per segment, domain and year, summed draw by draw across all four domains |
 | `Composition/csv/joint_mc_histograms.csv` | the 50-bin distribution behind every one of those series-years |
-| `Composition/figures/` | six figures of the overall electronics. **The cross-domain total band in these is still the old, invalid one** — step 4 replaces it |
+| `Composition/figures/` | eight figures of the overall electronics. Total and domain bands come from the joint Monte Carlo |
 | `Composition/csv/` | the tables behind those figures |
 | each model's own folder | its own figures, histograms and summaries |
 
