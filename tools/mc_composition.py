@@ -90,6 +90,24 @@ CHUNK = 2_000        # vehicles simulated at once. UNIT: draws. Peak memory is
 SEED = 20260813      # one seed for the whole joint run, so the composition is
                      # reproducible end to end from this single number.
 
+# The elemental summary reports each stream's ELEMENTS and then that same
+# stream's mass again under this name. It is a subtotal, not an element, and
+# summing it double-counts every stream. UNIT: none, a row label.
+TOTALMASS_ROW = "TotalMass"
+
+# Materials ElectricMotorMC puts in a motor that ElectricMotorElementMC does not
+# break down into elements. Aluminium IS an element; plastic is not resolved
+# further. Together 17.7% of motor mass, so dropping them is not negligible.
+# UNIT: none, material names as spelled in materials_mc_summary.csv.
+UNRESOLVED_MATERIALS = ["Aluminum", "Plastic"]
+
+# How far the reconstructed motor composition may sit from ElectricMotorMC's own
+# mass before it is treated as a defect. UNIT: fraction. The honest floor is the
+# element model resampling each material from a 50-bin histogram instead of the
+# original draws, which costs about 1% on EF. Set tighter and it will fail on
+# noise; set much looser and it stops catching a missing material stream.
+MOTOR_RECON_TOL = 0.03
+
 SEGMENTS = ["AB", "CD", "EF"]
 DOMAINS = ["Wiring", "Sensors", "PCB", "Motors"]
 YEARS = np.arange(2020, 2071)
@@ -151,28 +169,34 @@ def motor_2025():
     SAME combined summary into every stream folder, so exactly ONE file is read
     -- globbing all four counts every element four times.
 
-    ###################################################################
-    #  KNOWN INCONSISTENCY, NOT INTRODUCED HERE -- flagged 2026-08-13 #
-    ###################################################################
-    The element decomposition does NOT reconcile with the motor model's own
-    mass. Measured at 2025:
+    TWO DEFECTS FIXED HERE, both found 2026-08-13. Before the fix the element
+    total was 1.57-1.79x the motor model's own mass, which is impossible: the
+    elements DECOMPOSE the motors, so the two must be equal.
 
-        segment   element sum   ElectricMotorMC mass   ratio
-        AB           23.393 kg              13.044 kg   1.79
-        CD           45.573 kg              27.591 kg   1.65
-        EF           95.791 kg              61.182 kg   1.57
+    1. TotalMass WAS BEING SUMMED AS IF IT WERE AN ELEMENT. Each stream reports
+       its elements (Cu, plus traces in ppm) AND a TotalMass row holding that
+       same stream's mass again. Summing every row therefore counted every
+       stream exactly twice -- the clean 2.00x ratio that gave it away.
 
-    The elements decompose the motors, so these should be EQUAL. The four
-    Streams are complementary materials (Cast Fe Steel, Copper, Electrical
-    Steel, NdFeB), not duplicate runs, so summing them is correct -- the gap is
-    a genuine disagreement between ElectricMotorMC and ElectricMotorElementMC,
-    not a reading error.
+    2. ALUMINIUM AND PLASTIC WERE MISSING ENTIRELY. ElectricMotorElementMC only
+       runs four material streams (Cast Fe Steel, Copper, Electrical Steel,
+       NdFeB). ElectricMotorMC's motors are made of six: those four plus
+       Aluminium and Plastic, which together are 17.7% of motor mass. They have
+       no elemental breakdown -- aluminium IS an element and plastic is not
+       resolved further -- so they are taken straight from the material summary
+       and carried under their own names.
 
-    tools/build_composition.py has the same behaviour, so Data/30_ already
-    carries it. The element sum is kept HERE so the joint band stays comparable
-    with the published deliverable rather than silently disagreeing with it.
-    Whichever way it is resolved, the Motors LEVEL moves and the total moves
-    with it. The band shape and the correlation structure are unaffected.
+    Reconciliation after the fix, against ElectricMotorMC's own mass:
+
+        segment   elements + Al + Plastic   motor mass   error
+        AB                      13.041 kg     13.044 kg   0.02%
+        CD                      27.728 kg     27.591 kg   0.50%
+        EF                      61.755 kg     61.182 kg   0.94%
+
+    The residual is histogram-reconstruction noise: the element model resamples
+    each material mass from an exported 50-bin histogram rather than from the
+    original draws, which cannot reproduce a mean exactly. It is checked below
+    and will raise if it ever drifts past MOTOR_RECON_TOL.
     """
     per_draw = {}
     for seg in SEGMENTS:
@@ -190,10 +214,31 @@ def motor_2025():
     if not files:
         raise FileNotFoundError("no elemental_summary.csv -- run ElectricMotorElementMC.py")
     d = pd.read_csv(files[0])
+    d = d[d["Element"].astype(str) != TOTALMASS_ROW]          # defect 1
+
+    mat = pd.read_csv(ROOT / "ElectricMotorMC" / "materials_summary_csv"
+                      / "materials_mc_summary.csv")
+
     g25 = {}
     for seg in SEGMENTS:
-        sub = d[d["Case"].astype(str).str.startswith(seg + "_")]
-        g25[seg] = float(sub["Mean_mass_kg"].sum() * 1000.0)
+        elements = d[d["Case"].astype(str).str.startswith(seg + "_")]["Mean_mass_kg"].sum()
+        extra = mat[(mat.Segment == seg) & (mat.Motor == "GrandTotal")
+                    & (mat.Material.isin(UNRESOLVED_MATERIALS))]["Mean_mass_kg"].sum()
+        total_kg = float(elements + extra)                    # defect 2
+
+        # Must reconcile with the motor model's own mass -- the elements
+        # decompose the motors, so anything else means a stream is missing or
+        # counted twice. This is the check that would have caught both defects.
+        ref = float(per_draw[seg].mean())
+        err = abs(total_kg - ref) / ref
+        if err > MOTOR_RECON_TOL:
+            raise ValueError(
+                f"motor composition does not reconcile for {seg}: "
+                f"elements+{'+'.join(UNRESOLVED_MATERIALS)} = {total_kg:.3f} kg "
+                f"vs ElectricMotorMC mass {ref:.3f} kg ({err:.1%} > "
+                f"{MOTOR_RECON_TOL:.0%}). Check for a duplicated '{TOTALMASS_ROW}' "
+                f"row or a material with no elemental breakdown.")
+        g25[seg] = total_kg * 1000.0
     return per_draw, g25
 
 

@@ -173,6 +173,22 @@ def motors():
     found = bool(files)
     if found:
         d = pd.read_csv(files[0])
+        # TWO DEFECTS FIXED 2026-08-13. Before this the motor mass in Data/30_
+        # was 1.57-1.79x ElectricMotorMC's own mass, which is impossible: the
+        # elements decompose the motors, so the two must be equal.
+        #
+        # 1. "TotalMass" is NOT an element. Each stream reports its elements and
+        #    then that same stream's mass again under this label. Summing every
+        #    row counted every stream exactly twice.
+        # 2. Aluminium and Plastic were missing entirely. The element model runs
+        #    only four material streams; a motor is made of six. The other two
+        #    have no elemental breakdown -- aluminium IS an element, plastic is
+        #    not resolved further -- so they are carried under their own names.
+        #    They are 17.7% of motor mass.
+        #
+        # See docs/12_JOINT_MC_DESIGN.md §5 and tools/mc_composition.py, which
+        # applies the identical correction and asserts the reconciliation.
+        d = d[d["Element"].astype(str) != "TotalMass"]
         for seg in SEGMENTS:
             sub = d[d["Case"].astype(str).str.startswith(seg + "_")]
             # keep the motor TYPE; Case is "{seg}_{type}". TOTAL_* rows do not
@@ -180,6 +196,20 @@ def motors():
             for (case, el), kg in sub.groupby(["Case", "Element"])["Mean_mass_kg"].sum().items():
                 mtype = str(case).split("_", 1)[1]
                 tot[seg][(mtype, el)] = float(kg) * 1000.0                 # kg -> g
+
+        mat_f = ROOT / "ElectricMotorMC" / "materials_summary_csv" / "materials_mc_summary.csv"
+        if mat_f.exists():
+            mat = pd.read_csv(mat_f)
+            unresolved = mat[mat.Material.isin(["Aluminum", "Plastic"])
+                             & (mat.Motor != "GrandTotal")]
+            for _, r in unresolved.iterrows():
+                seg = str(r["Segment"])
+                if seg in tot:
+                    key = (str(r["Motor"]), str(r["Material"]))
+                    tot[seg][key] = tot[seg].get(key, 0.0) + float(r["Mean_mass_kg"]) * 1000.0
+        else:
+            print(f"  WARNING motors -- {mat_f.name} not found; Aluminium and "
+                  f"Plastic (17.7% of motor mass) are MISSING from the output")
     if not found:
         print("  SKIP motors -- no elemental_summary.csv (run ElectricMotorElementMC.py)")
         return

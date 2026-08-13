@@ -264,30 +264,79 @@ instead of assuming a value for it, and it will track automatically if the
 balance of variance shifts — which it will, if the sensor or PCB models ever
 gain the composition uncertainty they currently freeze at 2025.
 
-### Found while building it — motor mass does not reconcile
+---
 
-The motor element decomposition does not match the motor model's own mass:
+## 5. Motor mass — two defects, found and fixed
 
-| segment | element sum | ElectricMotorMC mass | ratio |
+Building step 3 surfaced a motor composition that was **1.57–1.79× the motor
+model's own mass**. The elements decompose the motors, so that is impossible.
+Diagnosis, in order:
+
+**The gap was not uniform** (1.075–1.98 by motor type) and tracked the housing
+material — metal-housing motors overshot most, plastic least. That ruled out a
+unit error.
+
+**Upstream was clean.** `ElectricMotorMC`'s six materials sum to 27.591 kg for
+CD, exactly its own motor mass. The defect was downstream.
+
+**Every stream was over by exactly 2.00×**, which is the signature of a double
+count, not a modelling disagreement.
+
+### Defect 1 — `TotalMass` was summed as if it were an element
+
+Each stream reports its elements *and* that same stream's mass again:
+
+| row | kg |
+|---|---|
+| `Cu` | 1.685386 |
+| trace elements (ppm) | ~0.0003 |
+| **`TotalMass`** | **1.685836** ← the same mass, again |
+
+`Cu` + traces ≈ `TotalMass`, so summing every row counted each stream twice.
+
+### Defect 2 — Aluminium and Plastic were missing entirely
+
+`ElectricMotorElementMC` runs **four** material streams. A motor is made of
+**six**. Aluminium and Plastic have no elemental breakdown — aluminium *is* an
+element, plastic is not resolved further — and were dropped: **17.7% of motor
+mass**.
+
+The two defects partly cancelled, which is why the ratio looked like a plausible
+1.6× rather than an obvious 2×.
+
+### After the fix
+
+| segment | elements + Al + Plastic | ElectricMotorMC mass | error |
 |---|---|---|---|
-| AB | 23.393 kg | 13.044 kg | **1.79** |
-| CD | 45.573 kg | 27.591 kg | **1.65** |
-| EF | 95.791 kg | 61.182 kg | **1.57** |
+| AB | 13.041 kg | 13.044 kg | **0.02%** |
+| CD | 27.728 kg | 27.591 kg | **0.50%** |
+| EF | 61.755 kg | 61.182 kg | **0.94%** |
 
-The elements decompose the motors, so these should be equal. The four `Stream`
-values are complementary materials (Cast Fe Steel, Copper, Electrical Steel,
-NdFeB), not duplicate runs, so summing them is correct — this is a genuine
-disagreement between `ElectricMotorMC` and `ElectricMotorElementMC`.
+The residual is histogram-reconstruction noise: the element model resamples each
+material mass from an exported 50-bin histogram rather than the original draws,
+which cannot reproduce a mean exactly.
 
-**Not introduced here.** `tools/build_composition.py` behaves the same way, so
-`Data/30_BEV_electronics_composition.csv` already carries it. The element sum is
-kept in the joint MC so the band stays comparable with the published
-deliverable. Whichever way it is resolved, the Motors *level* moves and the
-total moves with it; the band shape and correlation structure do not.
+Fixed in **both** `tools/build_composition.py` (so `Data/30_` is corrected) and
+`tools/mc_composition.py`. The joint MC now **asserts** the reconciliation
+against `MOTOR_RECON_TOL = 0.03` and raises if a stream is ever double-counted
+or a material dropped again — the check that would have caught both defects.
+
+### What it moved
+
+Total mass per vehicle fell by about 23%:
+
+| 2040 | Wiring | Motors | PCB | Sensors | **Total** | was |
+|---|---|---|---|---|---|---|
+| AB | 23.76 | 15.09 | 0.48 | 0.118 | **39.46 kg** | 51.44 |
+| CD | 36.62 | 31.12 | 0.61 | 0.173 | **68.52 kg** | 88.55 |
+| EF | 57.69 | 67.21 | 0.70 | 0.215 | **125.82 kg** | 162.86 |
+
+`Data/30_BEV_electronics_composition.csv` carried the inflated figure and has
+been rebuilt.
 
 ---
 
-## 5. Still open
+## 6. Still open
 
 **Step 4 — the figures.** Rebuild the band from `joint_mc_stats.csv` and delete
 `_lognormal_from_band` entirely.
