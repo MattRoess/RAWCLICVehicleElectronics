@@ -3,7 +3,8 @@
 
     python3 tools/mc_composition.py [n_iter]
 
-Writes  Composition/csv/joint_mc_stats.csv        mean, P2.5, median, P97.5
+Writes  Composition/draws/<seg>_<series>.npy     raw per-draw arrays (n_iter x years)
+        Composition/csv/joint_mc_stats.csv        mean, P2.5, median, P97.5
         Composition/csv/joint_mc_histograms.csv   50 bins per series-year
 
 WHY THIS EXISTS. The composition band used to be built by taking each domain's
@@ -120,6 +121,19 @@ I_BASE = int(np.searchsorted(YEARS, BASE_YEAR))
 
 OUT = ROOT / "Composition" / "csv"
 OUT.mkdir(parents=True, exist_ok=True)
+
+# [NEW] Where the RAW per-draw arrays go. Until now this run built the draws, pushed
+# them into the histogram accumulators and threw them away -- so anything downstream
+# could only ever resample a 50-bin approximation of the distribution. The stock-flow
+# model (RAWCLICStockAndFlow, stage 04_02) has to multiply these draws by its OWN
+# per-draw vehicle counts, one draw against one draw, which needs the real values.
+#
+# One file per (segment, series), shape (n_iter, n_years), float32 -- 40 MB each,
+# ~600 MB for the full set. float32 because these are grams per vehicle in the
+# 1e2-1e5 range: ~7 significant digits, far beyond the models' actual precision.
+# Written chunk by chunk through a memmap, so peak memory stays at one chunk
+# regardless of n_iter, exactly as the histogram path already does.
+DRAWS_OUT = ROOT / "Composition" / "draws"
 
 
 # ------------------------------------------------------- composition factors
@@ -344,7 +358,7 @@ def build_context():
 
 # ------------------------------------------------------------------- the run
 
-def run(n_iter=N_ITER, chunk=CHUNK, seed=SEED):
+def run(n_iter=N_ITER, chunk=CHUNK, seed=SEED, save_draws=True):
     ctx = build_context()
     rng = np.random.default_rng(seed)
     _, lidar_lag = load_lidar_bands(YEARS)
@@ -354,6 +368,14 @@ def run(n_iter=N_ITER, chunk=CHUNK, seed=SEED):
         print(f"\n{seg}: {n_iter:,} vehicles through four domains, "
               f"chunks of {chunk:,}")
         accs, done = None, 0
+        memmaps = {}
+        if save_draws:
+            DRAWS_OUT.mkdir(parents=True, exist_ok=True)
+            for k in DOMAINS + ["Total"]:
+                memmaps[k] = np.lib.format.open_memmap(
+                    DRAWS_OUT / f"{seg}_{k}.npy", mode="w+",
+                    dtype=np.float32, shape=(n_iter, len(YEARS)),
+                )
         while done < n_iter:
             m = min(chunk, n_iter - done)
             st = draw_vehicle_state(rng, m, YEARS, lidar_lag=lidar_lag)
@@ -369,8 +391,15 @@ def run(n_iter=N_ITER, chunk=CHUNK, seed=SEED):
                     accs[k] = Accumulator(lo - pad, hi + pad, n_series=len(YEARS))
             for k, v in dm.items():
                 accs[k].add(v)
+                if save_draws:
+                    memmaps[k][done:done + m, :] = v.astype(np.float32, copy=False)
             done += m
             print(f"    {done:>8,} / {n_iter:,}")
+
+        for k, mm in memmaps.items():
+            mm.flush()
+            print(f"    draws -> {DRAWS_OUT / f'{seg}_{k}.npy'}")
+        memmaps.clear()
 
         for k, a in accs.items():
             lo, med, hi = a.percentile(2.5), a.percentile(50), a.percentile(97.5)
