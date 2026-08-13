@@ -99,6 +99,7 @@ records what changed, what was decided, and what was left open.
 | **`Data/30_BEV_electronics_composition.csv`** | **the deliverable** — grams per vehicle by year, segment, domain, component type and element. What a stock-and-flow model consumes |
 | **`Composition/csv/joint_mc_stats.csv`** | **the joint Monte Carlo band** — mean, P2.5, median, mode, P97.5 per segment, domain and year, summed draw by draw across all four domains |
 | `Composition/csv/joint_mc_histograms.csv` | the 50-bin distribution behind every one of those series-years |
+| `tools/driver_sensitivity.py` | **which drivers actually carry the uncertainty** — freezes each in turn and reports what the total band loses. Run it before arguing about an assumption |
 | `Composition/figures/` | eight figures of the overall electronics. Total and domain bands come from the joint Monte Carlo |
 | `Composition/csv/` | the tables behind those figures |
 | each model's own folder | its own figures, histograms and summaries |

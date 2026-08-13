@@ -27,6 +27,46 @@ deliberately** — see §3. That is a stated scope boundary, not unfinished work
 
 ## 2. How to read the results — the part that matters most
 
+### 2.0 Only one driver really moves the total. The rest are eaten by the uncertainty.
+
+**Read this before arguing about any assumption.** We tested every driver by
+freezing it — giving every simulated car the same value — and seeing how much
+the total uncertainty shrank. That shrinkage is what the driver is worth.
+
+Total band is 41–57% of the mean. Of that:
+
+| driver | AB 2040 | CD 2040 | EF 2040 | CD 2070 |
+|---|---|---|---|---|
+| **the full band** | **57%** | **52%** | **44%** | **41%** |
+| zonal architecture | **15.8** | **10.7** | 2.9 | 0.0 |
+| 400 V → 800 V | 4.2 | 1.1 | 1.5 | 0.8 |
+| post-2040 scenario | 1.3 | 1.2 | 1.9 | 2.3 |
+| ADAS hardware tier | 0.2 | 0.4 | −0.0 | 0.1 |
+| lidar / China lag | 0.0 | −0.0 | 0.0 | −0.0 |
+
+*(points of band width lost if that driver were known exactly. Reproduce with
+`python3 tools/driver_sensitivity.py`.)*
+
+**In plain words:**
+
+- **Zonal architecture is the only driver that matters** for the total, and only
+  for small and medium cars, and only while the transition is running. By 2070
+  it contributes nothing, because by then every car is zonal and there is
+  nothing left to be uncertain about.
+- **The ADAS tier and lidar contribute nothing measurable to the total.** The
+  negative numbers are Monte Carlo noise — their true effect is below what the
+  run can resolve. This is a *result*, not a gap: the long argument about how
+  fast lidar arrives in Europe does not change how much material is in a car.
+- **Most of the remaining band is not a driver at all.** It is ordinary
+  car-to-car variation — how much wire and how many motors a given vehicle
+  happens to have — which no scenario can remove.
+
+**The trap this exists to prevent.** A driver can be negligible in the total and
+decisive in its own domain. The ADAS tier moves the sensor numbers a great deal;
+sensors are ~0.0% of total variance, so it vanishes in the total. Use this table
+for "what should I worry about when quoting the total per vehicle", never as
+"this driver does not matter".
+
 ### 2.1 The PCB numbers are bounded by an 8.2% driver
 
 PCB area 2025 → 2070: **AB +0.4%, CD −1.1%, EF −2.0%.**
@@ -178,6 +218,27 @@ equivalent exempt those rows rather than widening tolerance.
 ---
 
 ## 7. Known gaps, honestly stated
+
+**How much any of these can move the total is now measured — see §2.0.** Several
+sit on drivers that carry no measurable share of the total band, which does not
+make them wrong, but does say how hard to argue about them. Each is tagged.
+
+### 7.0 Assumptions we cannot predict — stated, not modelled
+
+These are unknowns, not errors. Each is a judgement standing in for evidence
+nobody has. They are listed so a reader can see exactly what is being assumed.
+
+| | assumption | can it move the total? |
+|---|---|---|
+| **B1** | **Lidar on 80% of top-tier cars.** `LIDAR_H4_FLOOR = 0.80` says a car built to the highest hardware tier carries lidar 80% of the time, whatever the fleet-wide lidar share is doing. For EF this puts modelled lidar roughly 6× above what is observed on the road today | **No.** Lidar contributes ~0.0 points of the total band (§2.0). It matters for the lidar count itself and nothing else |
+| **B2** | **Post-2040 sensor content multipliers of 1.0 / 1.4 / 2.0.** Three futures for how much sensor content a car carries after 2040. The numbers are judgement; no source | **Barely.** 1.2–2.3 points of a 41–57% band |
+| **B3** | **What a sensor and a motor are MADE OF is frozen at 2025.** How many there are is modelled and moves with time; the material split inside each unit does not. Deliberate — composition is not forecastable | **Not directly**, but it is *why* sensors carry ~0% of the variance. Unfreezing it is the one change that would make several other items matter |
+| **B4** | **No shared vehicle-size factor.** Only the wiring model knows that a bigger car needs more of everything (`CV_VEHICLE = 0.10`). The other three have no size factor, so a big car is not consistently big across domains | **Probably yes** — it would act on wiring and motors, which are ~all of the variance. The one open item that could still widen the total. Not built: it changes three models' distributions and the size elasticity differs sharply by domain (AB→EF: motors ×4.45, wiring ×2.43, PCB ×1.46), so a single copied number would be wrong |
+| **B5** | **The `01_` component relabelling was not propagated** to `SensorElementsMC` and the PCB models. Those still read the pre-2026-08-07 labels | **Unknown until done.** A bookkeeping inconsistency, not a modelling choice — this one is worth simply fixing |
+
+**B5 is the only one of these that is a task rather than a judgement.**
+
+### 7.1 Open work
 
 1. **`P-g`** — 50.7% of PCB area, unsourced. **The largest open item.**
 2. **`M-b2`** — accumulator not ported into `ElectricMotorMC`. ~82 MB/metric at
