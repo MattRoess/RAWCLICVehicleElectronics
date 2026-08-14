@@ -77,7 +77,35 @@ for root in [CU_ROOT, ESTL_ROOT, NDFEB_ROOT, CFSTEEL_ROOT]:
 # ────────────────────────────────────────────────────────────────────────────
 # SETTINGS
 # ────────────────────────────────────────────────────────────────────────────
-N_SAMPLES = 100_000
+# [CHANGED] 100_000 -> 200_000, the full length of the upstream sample files.
+#
+# `load_material_draws` takes the FIRST N_SAMPLES rows of ElectricMotorMC's own
+# per-draw material masses, and those files hold 200,000. At 100,000 half of every
+# file went unused, and -- more importantly -- the draws could not be paired with the
+# fleet model or the joint composition run, both of which use 200,000. Pairing draw i
+# with draw i is the whole basis of carrying uncertainty between models.
+#
+# This is what that function's docstring already recommended: "Set N_SAMPLES to the
+# full file length to use every draw and resample nothing at all."
+N_SAMPLES = 200_000
+
+# [NEW] Where the RAW per-draw element masses go, for the stock-and-flow model.
+#
+# WHY. This model already builds `(N_SAMPLES, n_elements)` arrays per segment and
+# material stream; it then reduces them to histograms and summary CSVs and throws the
+# draws away. Anything downstream could therefore only resample a binned
+# approximation. The stock-and-flow model (RAWCLICStockAndFlow, stage 04_02)
+# multiplies these against its own per-draw vehicle counts, one draw against one
+# draw, which needs the real values.
+#
+# WHAT IS STORED, AND WHY IT IS SMALL. Element FRACTIONS of the stream mass, not
+# absolute masses, and with no year axis. This study freezes composition at its 2025
+# value by decision -- what a motor is MADE OF is not forecastable -- so the fraction
+# has no time dimension, and the consumer recovers a year-resolved element mass as
+#     element_mass[draw, year] = stream_mass[draw, year] x fraction[draw, element]
+# Storing element x year x draw arrays instead would cost about 9 GB; fractions cost
+# roughly 180 MB for the whole study.
+ELEM_DRAWS_DIR = HERE.parent / "Composition" / "element_draws"
 RNG_SEED  = 42
 HIST_BINS = 100
 
@@ -872,6 +900,23 @@ def process_grand_totals(
         elem_mass_kg  = data["elem_mass"]    # (N_SAMPLES, n_elem)
         total_mass_kg = data["total_mass"]   # (N_SAMPLES,)
         elements      = data["elements"]
+
+        # [NEW] Persist this (segment, stream)'s per-draw element FRACTIONS.
+        # Fractions rather than masses, because the consumer scales them by its own
+        # year-resolved stream mass; see ELEM_DRAWS_DIR above. Rows where the stream
+        # mass is zero would divide by zero, so they are left at zero -- a stream with
+        # no mass contributes no element mass either way.
+        ELEM_DRAWS_DIR.mkdir(parents=True, exist_ok=True)
+        _tot = np.asarray(total_mass_kg, dtype=float)
+        _frac = np.zeros_like(np.asarray(elem_mass_kg, dtype=float))
+        _nz = _tot > 0
+        _frac[_nz] = np.asarray(elem_mass_kg, dtype=float)[_nz] / _tot[_nz, None]
+        np.save(ELEM_DRAWS_DIR / f"motors_{seg}_{stream}_fractions.npy",
+                _frac.astype(np.float32))
+        (ELEM_DRAWS_DIR / f"motors_{seg}_{stream}_elements.txt").write_text(
+            "\n".join(map(str, elements)))
+        print(f"      draws -> {ELEM_DRAWS_DIR.name}/motors_{seg}_{stream}_fractions.npy "
+              f"{_frac.shape}")
 
         if stream == "copper":
             color        = COPPER_COLOR
