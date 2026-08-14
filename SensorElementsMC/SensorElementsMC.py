@@ -398,6 +398,32 @@ for segment in segments:
     all_segment_sensortype_stats[segment] = sensortype_stats
     all_sensitivity[segment] = sensitivity
 
+    # [NEW] Persist this segment's per-draw element FRACTIONS for the stock-and-flow
+    # model. This script already holds `element_results[element]` as a (ndraws,)
+    # array and then reduces it to summaries; stage 04_02 of RAWCLICStockAndFlow
+    # multiplies element data against its own per-draw vehicle counts, one draw
+    # against one draw, and cannot do that from a summary.
+    #
+    # Fractions rather than masses, and with no year axis: this study freezes
+    # composition at its 2025 value by decision, while the joint composition run
+    # supplies the year-resolved sensor mass. The consumer recovers
+    #     element_mass[draw, year] = sensor_mass[draw, year] x fraction[draw, element]
+    #
+    # This model already runs at 200,000 draws, so unlike the motor and PCB models it
+    # needed no change to its draw count to line up with the fleet.
+    _elem_dir = Path(__file__).resolve().parent.parent / "Composition" / "element_draws"
+    _elem_dir.mkdir(parents=True, exist_ok=True)
+    _els = [e for e, v in element_results.items() if np.any(np.asarray(v) != 0)]
+    if _els:
+        _mass = np.column_stack([np.asarray(element_results[e], dtype=float) for e in _els])
+        _sum = _mass.sum(axis=1)
+        _frac = np.zeros_like(_mass)
+        _nz = _sum > 0
+        _frac[_nz] = _mass[_nz] / _sum[_nz, None]
+        np.save(_elem_dir / f"sensors_{segment}_fractions.npy", _frac.astype(np.float32))
+        (_elem_dir / f"sensors_{segment}_elements.txt").write_text("\n".join(_els))
+        print(f"    draws -> element_draws/sensors_{segment}_fractions.npy {_frac.shape}")
+
     print(f"{segment} Simulation complete! ({len(element_results)} elements simulated)")
 
 

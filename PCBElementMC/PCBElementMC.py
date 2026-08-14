@@ -52,7 +52,17 @@ OUTPUT_FOLDERS = {
 # ============================================================================
 
 # Monte Carlo parameters
-N_SIMULATIONS = 100000
+# [CHANGED] 100,000 -> 200,000, to match the fleet model and the joint composition
+# run so that draw i can be paired with draw i throughout.
+#
+# HOW THIS DIFFERS FROM THE MOTOR MODEL, which made the same change. There, 200,000
+# real upstream draws already existed and only the first 100,000 were being read, so
+# raising the number consumed data that was already there and resampled nothing.
+# Here the board areas are BOOTSTRAPPED from exported histograms, so a larger number
+# draws more bootstrap samples rather than reading more real ones. That is this
+# model's own sampling method and is statistically sound, but it is resampling: the
+# extra draws add precision to the estimate, not new information about the world.
+N_SIMULATIONS = 200000
 
 # Segments, categories, and sizes
 SEGMENTS = ['AB', 'CD', 'EF']
@@ -401,6 +411,47 @@ for segment in SEGMENTS:
     grand_totals['Total'][segment] = segment_total
 
 print("  ✓ Grand totals calculated")
+
+# ============================================================================
+# [NEW] Persist per-draw element FRACTIONS for the stock-and-flow model.
+#
+# WHY. This script already holds `grand_totals['Total'][segment][element]` as an
+# array of N_SIMULATIONS values, then reduces it to histograms and summary CSVs and
+# discards the draws. Stage 04_02 of RAWCLICStockAndFlow multiplies element data
+# against its own per-draw vehicle counts, one draw against one draw, and cannot do
+# that from a binned summary.
+#
+# FRACTIONS, NOT MASSES, AND NO YEAR AXIS. This study freezes composition at its 2025
+# value by decision -- what a board is MADE OF is not forecastable -- while the joint
+# composition run supplies the year-resolved PCB mass. The consumer recovers
+#     element_mass[draw, year] = pcb_mass[draw, year] x fraction[draw, element]
+# so the year dimension never multiplies into storage.
+#
+# Written at the 'Total' level -- all board sizes combined -- because that is the
+# quantity the joint run reports as the PCB domain. Per-size fractions would not line
+# up with anything downstream.
+# ============================================================================
+import numpy as _np
+from pathlib import Path as _Path
+
+_ELEM_DRAWS_DIR = _Path(__file__).resolve().parent.parent / "Composition" / "element_draws"
+_ELEM_DRAWS_DIR.mkdir(parents=True, exist_ok=True)
+
+for _segment in SEGMENTS:
+    _tot = grand_totals['Total'][_segment]
+    _elements = [el for el in ALL_ELEMENTS if _np.any(_tot[el] != 0)]
+    if not _elements:
+        print(f"    {_segment}: no non-zero elements, nothing to persist")
+        continue
+    _mass = _np.column_stack([_tot[el] for el in _elements]).astype(float)
+    _sum = _mass.sum(axis=1)
+    _frac = _np.zeros_like(_mass)
+    _nz = _sum > 0
+    _frac[_nz] = _mass[_nz] / _sum[_nz, None]
+    _np.save(_ELEM_DRAWS_DIR / f"pcb_{_segment}_fractions.npy", _frac.astype(_np.float32))
+    (_ELEM_DRAWS_DIR / f"pcb_{_segment}_elements.txt").write_text("\n".join(_elements))
+    print(f"    draws -> element_draws/pcb_{_segment}_fractions.npy {_frac.shape}")
+
 
 # ============================================================================
 # SAVE RESULTS TO CSV
