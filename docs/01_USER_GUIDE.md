@@ -58,22 +58,49 @@ because later models read what earlier ones write:
 .venv/bin/python ElectricMotorMC/ElectricMotorMC.py
 .venv/bin/python ElectricMotorElementMC/ElectricMotorElementMC.py
 .venv/bin/python tools/build_composition.py
+.venv/bin/python tools/mc_composition.py
 .venv/bin/python tools/plot_composition.py
 ```
 
-**Expect 20–40 minutes in total.** Some models take several minutes; that is
+**Expect 25–45 minutes in total.** Some models take several minutes; that is
 normal, they are simulating 200,000 vehicles each.
 
-The final command produces the file most people actually want:
+**The order is not a suggestion.** Four of these read what an earlier one wrote,
+and running them out of order produces numbers that look fine and are not:
+
+| this one… | must run after… | because |
+|---|---|---|
+| `PCBElementMC` | `PCBAreaMC` | it reads that model's histograms **and** its year scale factors |
+| `ElectricMotorElementMC` | `ElectricMotorMC` | it splits that model's per-draw material masses into elements |
+| `tools/mc_composition.py` | all four domain models | it pushes one simulated car through every one of them |
+| `tools/plot_composition.py` | `mc_composition` | the bands in the figures **are** the joint Monte Carlo |
+
+The last three commands produce what most people actually want:
 
 **`Data/30_BEV_electronics_composition.csv`** — material grams per vehicle, per
-segment, per year, **per component type**.
+segment, per year, **per component type**. This is what a stock-and-flow model
+consumes.
 
-The last command draws the **overall electronics figures** into
-`Composition/figures/` — total material over time, composition by domain, the
-elements carrying the mass, what actually moves, the wiring HV/LV split, and
-where the material sits in 2025 vs 2070. Nothing else in the project plots the
-combined picture; each model only draws its own domain.
+**`Composition/csv/joint_mc_stats.csv`** — the uncertainty band: mean, P2.5,
+median, mode and P97.5 per segment, domain and year, summed **draw by draw**
+across all four domains. `30_` carries means; this carries the range. Quote them
+together.
+
+**`Composition/figures/`** — the overall electronics figures. Nothing else in the
+project plots the combined picture; each model only draws its own domain.
+
+`tools/plot_composition.py` will **stop with a clear message** if
+`mc_composition` has not run, rather than drawing a band it cannot justify.
+
+### Optional, and worth running once
+
+```bash
+.venv/bin/python tools/driver_sensitivity.py
+```
+
+Freezes each driver in turn and reports how much of the total uncertainty it was
+carrying. Run it before arguing about any assumption — most of them turn out not
+to move the total. See `02_MODEL_STATUS.md` §2.0.
 
 ---
 

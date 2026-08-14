@@ -267,6 +267,90 @@ STREAM_MATERIAL_COL = {
     "cfsteel": "mass_kg__Steel",
 }
 
+# Materials ElectricMotorMC puts in a motor that this model does not break down
+# into elements. Aluminium IS an element and is folded into `Al`; plastic is not
+# resolved further and is carried under its own name.
+# UNIT: none, material names as spelled in the materials_samples .json.
+UNRESOLVED_MATERIAL_COL = {
+    "Al":      "mass_kg__Aluminum",
+    "Plastic": "mass_kg__Plastic",
+}
+
+# How large the UNSPECIFIED remainder of a motor may be before it is treated as a
+# defect rather than as trace chemistry. UNIT: fraction of motor mass.
+#
+# There IS a real remainder, and it is not float noise. The copper stream's named
+# elements sum to 99.9916% of that stream's mass -- Cu at ~99.97% plus a list of
+# impurities in ppm, whose specification does not quite close. The other three
+# streams close to ~3e-8, which is float32 storage precision. Measured at the
+# motor level the shortfall is ~5e-5 of motor mass.
+#
+# So this is NOT a tolerance that absorbs the residual. The residual is carried as
+# an explicit `Unspecified` entry below, and the fractions sum to exactly 1 by
+# construction. This constant only bounds how big that entry may get: 1e-3 is 20x
+# the measured value, and still 30x below the smallest resolved material
+# (aluminium in AB, 3.1% of the motor), so a whole missing stream cannot hide
+# inside it.
+#
+# An earlier version of this constant was set to 1e-9 on the stated grounds that
+# "nothing but float64 rounding sits between the two sides". That was asserted,
+# not measured, and it was wrong -- the check fired on 199,989 of 200,000 draws.
+# The number above comes from the measurement that should have been done first.
+MOTOR_FRAC_TOL = 1e-3
+
+
+def motor_mass_and_unresolved(seg: str, n: int):
+    """Full per-draw motor mass for one segment, and the two unresolved materials.
+
+    Returns:
+        (total_mass_kg, aluminium_kg, plastic_kg), each (n,) in kg, summed over
+        every motor-type case belonging to this segment.
+
+    WHY THIS EXISTS. The element streams alone do not add up to a motor -- see the
+    long note in process_grand_totals. The fractions written there must divide by
+    the WHOLE motor, which only ElectricMotorMC knows, so it is read here from the
+    same per-draw files the streams themselves are read from.
+
+    The first n rows are taken, matching load_material_draws exactly, so row i is
+    the same simulated motor on both sides. Taking a different slice, or a random
+    one, would silently break the pairing that this whole module was rewritten in
+    August 2026 to preserve.
+
+    A motor-type case that has no plastic (most of them) simply contributes zero,
+    rather than being skipped -- a missing column means "none of this material",
+    not "unknown".
+    """
+    tot = al = pl = None
+    for p in sorted(MAT_SAMPLES_DIR.glob(f"materials_samples_{seg}_*.npy")):
+        js = p.with_suffix(".json")
+        if not js.exists():
+            raise FileNotFoundError(f"{p.name} has no companion .json naming its columns")
+        cols = json.load(open(js))["columns"]
+        a = np.load(p, mmap_mode="r")
+        if a.shape[0] < n:
+            raise ValueError(
+                f"{p.name} holds {a.shape[0]:,} draws but {n:,} are needed. Re-run "
+                f"ElectricMotorMC.py with at least N_SAMPLES={n:,}, or lower "
+                f"N_SAMPLES here -- do NOT resample, it breaks the row pairing.")
+
+        def col(name: str) -> np.ndarray:
+            if name not in cols:
+                return np.zeros(n, dtype=float)
+            return np.asarray(a[:n, cols.index(name)], dtype=float)
+
+        t = col("total_mass_kg")
+        if not np.all(np.isfinite(t)):
+            raise ValueError(f"{p.name} has non-finite total_mass_kg")
+        tot = t if tot is None else tot + t
+        x = col(UNRESOLVED_MATERIAL_COL["Al"]);      al = x if al is None else al + x
+        y = col(UNRESOLVED_MATERIAL_COL["Plastic"]); pl = y if pl is None else pl + y
+
+    if tot is None:
+        raise FileNotFoundError(
+            f"no materials_samples_{seg}_*.npy in {MAT_SAMPLES_DIR} -- "
+            f"run ElectricMotorMC.py first")
+    return tot, al, pl
+
 
 def load_material_draws(stem: str, stream: str, n: int) -> np.ndarray:
     """ElectricMotorMC's OWN per-draw material mass, in kg. (n,)
@@ -896,6 +980,133 @@ def process_grand_totals(
       - sensitivity heatmap
       - summary rows
     """
+    # [NEW] Per-SEGMENT element fractions, combining all four material streams.
+    #
+    # The per-stream fractions written further down describe composition WITHIN a
+    # stream -- what the copper stream is made of, what the NdFeB stream is made of.
+    # They cannot be combined without knowing each stream's share of total motor
+    # mass, and a consumer holding only the motor domain's total mass has no way to
+    # recover that. So the combined split is computed here, where every stream for a
+    # segment is in hand at once, and written as one array per segment:
+    #
+    #     element_mass[draw, year] = motor_mass[draw, year] x fraction[draw, element]
+    #
+    # Elements are unioned across streams and summed where they appear in more than
+    # one (iron occurs in both steels, for instance), so the fractions describe the
+    # whole motor rather than any single stream.
+    #
+    # THE DENOMINATOR MUST BE THE WHOLE MOTOR, NOT THE PART THIS MODEL RESOLVES.
+    # This is the defect that the first version of this block shipped with, and it is
+    # worth stating plainly because the wrong version looked completely healthy: its
+    # fractions summed to 1.0000 to four decimals, on every segment.
+    #
+    # They summed to 1 over the WRONG TOTAL. This model resolves four material
+    # streams into elements -- cast Fe steel, copper, electrical steel, NdFeB. A motor
+    # in ElectricMotorMC is made of SIX materials: those four plus Aluminium and
+    # Plastic, which have no elemental breakdown (aluminium IS an element; plastic is
+    # not resolved further). Dividing by the sum of the four streams therefore gives
+    # "fraction of the elementally-resolved part of a motor", which is a perfectly
+    # self-consistent quantity and the wrong one to hand downstream.
+    #
+    # The consumer (RAWCLICStockAndFlow stage 04_02) multiplies these fractions by
+    # tools/mc_composition.py's Motors mass, and that mass is the WHOLE motor. Mixing
+    # the two denominators inflates every motor element by 1/(1 - unresolved share):
+    #
+    #     segment   Al + Plastic     inflation if unfixed
+    #     AB              10.32%                   +11.5%
+    #     CD              17.67%                   +21.5%
+    #     EF              22.18%                   +28.5%
+    #
+    # Nd, Dy and motor copper would all have come out high by that much, with nothing
+    # in the output to show for it.
+    #
+    # So the denominator is ElectricMotorMC's own per-draw `total_mass_kg`, and the
+    # two unresolved materials are carried explicitly: bulk Aluminium is added into
+    # the `Al` element, because aluminium metal is the element aluminium, and Plastic
+    # is carried under its own name so the fractions still sum to exactly 1 and the
+    # unresolved part is visible rather than hidden in a shortfall.
+    #
+    # Row i is THE SAME SIMULATED MOTOR in both models -- this model reads
+    # ElectricMotorMC's draws directly (see load_material_draws) rather than
+    # resampling them -- so this division is exact per draw, not an assumed pairing.
+    _by_seg: Dict[str, Dict[str, np.ndarray]] = {}
+    _res_by_seg: Dict[str, np.ndarray] = {}
+    for (seg, stream), data in mc_accum.items():
+        em = np.asarray(data["elem_mass"], dtype=float)
+        tm = np.asarray(data["total_mass"], dtype=float)
+        acc = _by_seg.setdefault(seg, {})
+        for j, el in enumerate(data["elements"]):
+            acc[el] = acc.get(el, 0.0) + em[:, j]
+        _res_by_seg[seg] = _res_by_seg.get(seg, 0.0) + tm
+
+    ELEM_DRAWS_DIR.mkdir(parents=True, exist_ok=True)
+    for seg, acc in _by_seg.items():
+        els = [e for e, v in acc.items() if np.any(v != 0)]
+        if not els:
+            continue
+        n_draws = len(acc[els[0]])
+        tot_full, al_bulk, plastic = motor_mass_and_unresolved(seg, n_draws)
+
+        acc = dict(acc)
+        acc["Al"] = acc.get("Al", 0.0) + al_bulk      # bulk aluminium IS the element
+        acc["Plastic"] = plastic                      # NOT an element; kept visible
+        els = [e for e in (*els, "Al", "Plastic") if e in acc]
+        els = list(dict.fromkeys(els))
+        els = [e for e in els if np.any(np.asarray(acc[e]) != 0)]
+
+        mass = np.column_stack([np.asarray(acc[e], dtype=float) for e in els])
+
+        # RECONCILIATION. The four resolved streams plus Aluminium plus Plastic must
+        # BE the motor -- the elements decompose it, so anything else means a stream
+        # is missing or double-counted. Checked per draw, not on the mean, because a
+        # mean can reconcile while individual draws do not.
+        #
+        # What is left over is carried, not absorbed. The named elements fall ~5e-5
+        # short of the motor (see MOTOR_FRAC_TOL), because the copper specification
+        # lists Cu plus impurities in ppm and does not quite close. Dropping that
+        # would make the fractions sum to slightly under 1 and quietly rescale every
+        # element when a consumer normalised them; hiding it in a loose tolerance
+        # would make it invisible. It gets a name instead.
+        residual = tot_full - mass.sum(axis=1)
+        rel = residual / np.maximum(tot_full, 1e-12)
+
+        if np.any(rel > MOTOR_FRAC_TOL):
+            i = int(np.argmax(rel))
+            raise ValueError(
+                f"motor composition falls short for {seg}: "
+                f"{int((rel > MOTOR_FRAC_TOL).sum()):,} of {n_draws:,} draws leave "
+                f"more than {MOTOR_FRAC_TOL:.1e} of the motor unaccounted. Worst "
+                f"draw {i}: elements+Al+Plastic = {mass.sum(axis=1)[i]:.6f} kg vs "
+                f"ElectricMotorMC total_mass_kg = {tot_full[i]:.6f} kg "
+                f"({rel[i]:.2e}). A material stream is missing from mc_accum.")
+
+        if np.any(rel < -MOTOR_FRAC_TOL):
+            i = int(np.argmin(rel))
+            raise ValueError(
+                f"motor composition OVERSHOOTS for {seg}: draw {i} has "
+                f"elements+Al+Plastic = {mass.sum(axis=1)[i]:.6f} kg against a motor "
+                f"of {tot_full[i]:.6f} kg ({rel[i]:.2e}). The parts cannot outweigh "
+                f"the whole -- a stream is being counted twice, or TotalMass has "
+                f"leaked in as if it were an element.")
+
+        els = [*els, "Unspecified"]
+        mass = np.column_stack([mass, residual])
+
+        frac = np.zeros_like(mass)
+        nz = tot_full > 0
+        frac[nz] = mass[nz] / tot_full[nz, None]
+        np.save(ELEM_DRAWS_DIR / f"motors_{seg}_fractions.npy", frac.astype(np.float32))
+        (ELEM_DRAWS_DIR / f"motors_{seg}_elements.txt").write_text("\n".join(els))
+        _s = frac.sum(axis=1)
+        print(f"      combined draws -> element_draws/motors_{seg}_fractions.npy "
+              f"{frac.shape}  sum(frac) mean={_s.mean():.8f} "
+              f"[{_s.min():.8f}-{_s.max():.8f}]")
+        print(f"        motor mass {tot_full.mean():7.3f} kg   "
+              f"Cu {frac[:, els.index('Cu')].mean():.5f}   "
+              f"Al {frac[:, els.index('Al')].mean():.5f}   "
+              f"Plastic {frac[:, els.index('Plastic')].mean():.5f}   "
+              f"Unspecified {rel.mean():.2e} (max {rel.max():.2e})")
+
     for (seg, stream), data in mc_accum.items():
         elem_mass_kg  = data["elem_mass"]    # (N_SAMPLES, n_elem)
         total_mass_kg = data["total_mass"]   # (N_SAMPLES,)

@@ -165,7 +165,7 @@ def pcb_g_per_cm2():
     that model rather than a fitted relationship. Taken at BASE_YEAR; the
     year-to-year drift is 0.08%.
     """
-    e = pd.read_csv(ROOT / "PCBElementMC" / "csv_results" / "element_mass_by_year.csv")
+    e = pd.read_pickle(ROOT / "PCBElementMC" / "data_results" / "element_mass_by_year.pkl")
     tot = e.groupby(["Segment", "Year"])["Mean_g"].sum()
     out = {}
     for seg in SEGMENTS:

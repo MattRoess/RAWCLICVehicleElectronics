@@ -39,14 +39,14 @@ Outputs:
 - sensor_monte_carlo_{SEG}_segment.png (per segment, grand total distribution)
 - sensor_domain_analysis_{SEG}_segment.png (per segment, by domain)
 - sensor_domain_cross_segment_comparison.png
-- sensor_monte_carlo_{SEG}_detailed_results.csv (per segment, one column per combined SensorType + Total)
+- data_draws/sensor_draws_{SEG}.pkl (per segment, one column per combined SensorType + Total)
 - sensor_monte_carlo_{SEG}_summary_stats.csv (per segment, stats per combined SensorType + Total)
 - sensor_segment_comparison.csv
 - sensor_sensitivity_{SEG}_segment.csv (per segment, variance contribution per SensorType)
 - sensor_domain_summary_{SEG}_segment.csv (per segment, stats per Domain)
 - sensor_domain_cross_segment_comparison.csv
 - histograms/histogram_{SEG}_{sensortype}.csv (50-bin histograms for combined SensorType + Total)
-- raw_data/raw_distribution_{SEG}_segment.csv (raw per-draw values for combined SensorType + Total)
+- data_draws/domain_draws_{SEG}.pkl (raw per-draw values per domain)
 - distribution_index.csv (root)
 
 Notes:
@@ -71,7 +71,6 @@ BASE_DIR = SCRIPT_DIR.parent
 DATA_DIR = BASE_DIR / "Data"
 
 os.makedirs(SCRIPT_DIR / 'histograms', exist_ok=True)
-os.makedirs(SCRIPT_DIR / 'raw_data', exist_ok=True)
 os.makedirs(SCRIPT_DIR / 'figures_domain', exist_ok=True)
 os.makedirs(SCRIPT_DIR / 'figures_segment', exist_ok=True)
 os.makedirs(SCRIPT_DIR / 'figures_monte_carlo', exist_ok=True)
@@ -1444,11 +1443,16 @@ if _RUN:
     print("SAVING RESULTS")
     print("="*70)
 
+    # THE PER-DRAW TABLE, WRITTEN ONCE AND AS BINARY. This used to be written
+    # twice as identical CSVs -- here, and again as
+    # raw_data/raw_distribution_{segment}_segment.csv -- both from the same
+    # `all_segment_results[segment]`. One binary file now; the second writer is
+    # gone and the distribution index points here.
+    (SCRIPT_DIR / 'data_draws').mkdir(parents=True, exist_ok=True)
     for segment in segments:
         results_df = pd.DataFrame(all_segment_results[segment])
-        results_df.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / f'sensor_monte_carlo_{segment}_detailed_results.csv',
-                           index=False)
-        print(f"✓ Saved: csv_monte_carlo/sensor_monte_carlo_{segment}_detailed_results.csv")
+        results_df.to_pickle(SCRIPT_DIR / 'data_draws' / f'sensor_draws_{segment}.pkl')
+        print(f"✓ Saved: data_draws/sensor_draws_{segment}.pkl")
 
     for segment in segments:
         stats_df = pd.DataFrame(all_stats[segment]).T
@@ -1662,17 +1666,14 @@ if _RUN:
     # 3. Save raw distribution data (for exact bootstrapping)
     print("\nSaving raw distribution data...")
 
-    for segment in segments:
-        results_df = pd.DataFrame(all_segment_results[segment])
-        filename = SCRIPT_DIR / 'raw_data' / f'raw_distribution_{segment}_segment.csv'
-        results_df.to_csv(filename, index=False)
-        print(f"  ✓ Saved: raw_data/raw_distribution_{segment}_segment.csv")
+    # The raw_data/..._segment.csv duplicate that used to be written here is gone --
+    # it was the same frame as data_draws/sensor_draws_{segment}.pkl above.
 
     for segment in segments:
         domain_df = pd.DataFrame(domain_segment_results[segment])
-        filename = SCRIPT_DIR / 'raw_data' / f'raw_distribution_{segment}_domains.csv'
-        domain_df.to_csv(filename, index=False)
-        print(f"  ✓ Saved: raw_data/raw_distribution_{segment}_domains.csv")
+        filename = SCRIPT_DIR / 'data_draws' / f'domain_draws_{segment}.pkl'
+        domain_df.to_pickle(filename)
+        print(f"  ✓ Saved: data_draws/domain_draws_{segment}.pkl")
 
     # 4. Master index file
     print("\nCreating master index file...")
@@ -1686,7 +1687,7 @@ if _RUN:
                 'segment': segment,
                 'label': metric,
                 'histogram_file': f'histograms/histogram_{segment}_{metric_name}.csv',
-                'raw_data_file': f'raw_data/raw_distribution_{segment}_segment.csv',
+                'raw_data_file': f'data_draws/sensor_draws_{segment}.pkl',
                 'n_simulations': ndraws,
                 'n_bins': n_bins
             })
@@ -1699,7 +1700,7 @@ if _RUN:
                 'segment': segment,
                 'label': domain,
                 'histogram_file': f'histograms/histogram_{segment}_domain_{domain_name}.csv',
-                'raw_data_file': f'raw_data/raw_distribution_{segment}_domains.csv',
+                'raw_data_file': f'data_draws/domain_draws_{segment}.pkl',
                 'n_simulations': ndraws,
                 'n_bins': n_bins
             })

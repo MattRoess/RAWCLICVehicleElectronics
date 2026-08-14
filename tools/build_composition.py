@@ -119,11 +119,13 @@ def wiring():
 def pcb():
     """Element mass in printed circuit boards. Year-resolved by P-f."""
     # The DETAILED file, not the totals -- totals discard Category and Size.
-    f = ROOT / "PCBElementMC" / "csv_results" / "element_mass_by_year.csv"
+    # BINARY, not CSV: PCBElementMC writes this as a pandas pickle so the frame
+    # round-trips with its dtypes intact and without re-parsing 6 MB of text.
+    f = ROOT / "PCBElementMC" / "data_results" / "element_mass_by_year.pkl"
     if not f.exists():
         print(f"  SKIP PCB -- {f} not found (run PCBAreaMC then PCBElementMC)")
         return
-    d = pd.read_csv(f)
+    d = pd.read_pickle(f)
     for _, r in d.iterrows():
         cat, size = str(r["Category"]), str(r["Size"])
         add(r["Year"], r["Segment"], "PCB", r["Element"], r["Mean_g"], "modelled",

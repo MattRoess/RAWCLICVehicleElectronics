@@ -56,7 +56,7 @@ Outputs:
 - element_sensortype_breakdown_{SEG}_segment.csv  (per SensorType x Element stats, per segment)
 - csv_sensitivity/element_sensitivity_{ELEMENT}_{SEG}_segment.csv
 - histograms/histogram_{SEG}_{ELEMENT}.csv  (50-bin histograms, total mass per element)
-- raw_data/raw_distribution_{SEG}_elements.csv (raw per-draw element totals)
+- data_draws/element_draws_{SEG}.pkl (raw per-draw element totals)
 - distribution_index.csv (root)
 
 Notes:
@@ -82,7 +82,6 @@ BASE_DIR = SCRIPT_DIR.parent
 DATA_DIR = BASE_DIR / "Data"
 
 os.makedirs(SCRIPT_DIR / 'histograms', exist_ok=True)
-os.makedirs(SCRIPT_DIR / 'raw_data', exist_ok=True)
 os.makedirs(SCRIPT_DIR / 'figures_segment', exist_ok=True)
 os.makedirs(SCRIPT_DIR / 'figures_monte_carlo', exist_ok=True)
 os.makedirs(SCRIPT_DIR / 'figures_sensitivity', exist_ok=True)
@@ -404,10 +403,35 @@ for segment in segments:
     # multiplies element data against its own per-draw vehicle counts, one draw
     # against one draw, and cannot do that from a summary.
     #
-    # Fractions rather than masses, and with no year axis: this study freezes
-    # composition at its 2025 value by decision, while the joint composition run
-    # supplies the year-resolved sensor mass. The consumer recovers
-    #     element_mass[draw, year] = sensor_mass[draw, year] x fraction[draw, element]
+    # ABSOLUTE MASSES ARE THE PRIMARY OUTPUT HERE, NOT FRACTIONS. The fraction file
+    # is still written (below) for consumers that want composition, but the
+    # stock-and-flow model reads the masses, and the reason is a real defect that
+    # fractions would have carried straight through.
+    #
+    # tools/mc_composition.py builds its Sensors domain mass as
+    #     sum over sensor types of  count x sum of each element's MODE mg
+    # -- the mode, the single most likely value. Every other domain uses draws or
+    # means: motors read ElectricMotorMC's own per-draw samples, PCB uses Mean_g,
+    # wiring reports copper directly. Sensors are the only domain estimated from
+    # modes.
+    #
+    # That is the wrong estimator for a mass balance. Expected total mass is
+    # E[sum x] = sum E[x], and the mean of a triangular(min, mode, max) is
+    # (min + mode + max)/3, not the mode. These composition tables are strongly
+    # right-skewed -- max far above mode -- so summing modes understates the
+    # expected mass by a factor of 1.613, measured on this file. With the count
+    # convention (uniform draws, mean (min+max)/2, factor 1.073) the full gap is
+    # 1.73x, which is exactly the discrepancy observed between this model's totals
+    # and mc_composition's Sensors series.
+    #
+    # Multiplying a fraction by that mass would inherit the 1.73x understatement in
+    # every element, and no amount of Monte Carlo would reveal it, because the bias
+    # is in the estimator rather than in the sampling. So the masses go out as they
+    # are -- mg per vehicle, per draw, at the study's own 2025 basis -- and the
+    # consumer scales them through time by the SHAPE of mc_composition's sensor
+    # trajectory rather than its level.
+    #
+    # NO YEAR AXIS: this study freezes composition at 2025 by decision.
     #
     # This model already runs at 200,000 draws, so unlike the motor and PCB models it
     # needed no change to its draw count to line up with the fleet.
@@ -416,6 +440,17 @@ for segment in segments:
     _els = [e for e, v in element_results.items() if np.any(np.asarray(v) != 0)]
     if _els:
         _mass = np.column_stack([np.asarray(element_results[e], dtype=float) for e in _els])
+
+        np.save(_elem_dir / f"sensors_{segment}_mass_mg.npy", _mass.astype(np.float32))
+        (_elem_dir / f"sensors_{segment}_mass_elements.txt").write_text("\n".join(_els))
+        print(f"    draws -> element_draws/sensors_{segment}_mass_mg.npy {_mass.shape}"
+              f"  total {_mass.sum(axis=1).mean()/1000:.2f} g/vehicle")
+
+        # Composition, for consumers that want a split rather than a mass. Note this
+        # sums to 1 over the elements this model resolves, which is NOT all of a
+        # sensor: the named elements account for only ~48% of physical sensor weight,
+        # the rest being plastic, epoxy and glass that the source table never
+        # resolves elementally. Do not read it as "a sensor is 36% copper".
         _sum = _mass.sum(axis=1)
         _frac = np.zeros_like(_mass)
         _nz = _sum > 0
@@ -761,10 +796,21 @@ for segment in segments:
     stats_df.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / f'element_monte_carlo_{segment}_summary_stats.csv')
     print(f"✓ Saved: csv_monte_carlo/element_monte_carlo_{segment}_summary_stats.csv")
 
+    # THE PER-DRAW TABLE, WRITTEN ONCE AND AS BINARY.
+    #
+    # This used to go out twice, as identical CSVs: once here as
+    # csv_monte_carlo/..._detailed_results.csv and again further down as
+    # raw_data/raw_distribution_..._elements.csv. Both were built from the same
+    # `all_segment_element_results[segment]`, and the two files were byte-identical
+    # -- 284 MB of duplicate on every run, 568 MB in total.
+    #
+    # One file now, as a pandas pickle: ~200,000 rows x 27 elements of float, which
+    # as CSV was 94 MB of re-rendered text per segment. The second writer is gone,
+    # and the distribution index below points here.
+    (SCRIPT_DIR / 'data_draws').mkdir(parents=True, exist_ok=True)
     results_df = pd.DataFrame(all_segment_element_results[segment])
-    results_df.to_csv(SCRIPT_DIR / 'csv_monte_carlo' / f'element_monte_carlo_{segment}_detailed_results.csv',
-                       index=False)
-    print(f"✓ Saved: csv_monte_carlo/element_monte_carlo_{segment}_detailed_results.csv")
+    results_df.to_pickle(SCRIPT_DIR / 'data_draws' / f'element_draws_{segment}.pkl')
+    print(f"✓ Saved: data_draws/element_draws_{segment}.pkl")
 
 # Per-SensorType breakdown, per element, per segment (the "calculate for each sensor type" output)
 for segment in segments:
@@ -846,17 +892,15 @@ for segment in segments:
             'segment': segment,
             'label': element,
             'histogram_file': f'histograms/histogram_{segment}_{elem_name}.csv',
-            'raw_data_file': f'raw_data/raw_distribution_{segment}_elements.csv',
+            'raw_data_file': f'data_draws/element_draws_{segment}.pkl',
             'n_simulations': ndraws,
             'n_bins': n_bins
         })
     print(f"  ✓ Saved {len(element_results)} element histograms for {segment} segment")
 
-for segment in segments:
-    results_df = pd.DataFrame(all_segment_element_results[segment])
-    filename = SCRIPT_DIR / 'raw_data' / f'raw_distribution_{segment}_elements.csv'
-    results_df.to_csv(filename, index=False)
-    print(f"  ✓ Saved: raw_data/raw_distribution_{segment}_elements.csv")
+# The raw_data/ duplicate that used to be written here is gone -- it was the same
+# frame as data_draws/element_draws_{segment}.pkl above, written a second time as a
+# byte-identical 94 MB CSV. See the note at that write.
 
 index_df = pd.DataFrame(index_data)
 index_df.to_csv(SCRIPT_DIR / 'distribution_index_elements.csv', index=False)

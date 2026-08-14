@@ -44,7 +44,20 @@ OUTPUT_FOLDERS = {
     'figures_sensitivity_detailed': SCRIPT_DIR / 'figures_sensitivity_detailed',
     'csv_results': SCRIPT_DIR / 'csv_results',
     'csv_grand_totals': SCRIPT_DIR / 'csv_grand_totals',
-    'csv_sensitivity': SCRIPT_DIR / 'csv_sensitivity'
+    'csv_sensitivity': SCRIPT_DIR / 'csv_sensitivity',
+    # BULK OUTPUT GOES OUT AS BINARY, NOT CSV.
+    #
+    # The per-combination result frames and the grand totals are 200,000-row
+    # numeric tables. As CSV they were 4.2 GB and 428 MB respectively -- every
+    # float re-rendered as ~20 characters of text, then re-parsed on read. As
+    # pandas pickles they are a fraction of that, load without parsing, and keep
+    # their dtypes exactly, so a round trip cannot quietly turn an int column
+    # into a float or lose precision on the last digit.
+    #
+    # The `csv_*` folders above stay CSV on purpose: they hold the small SUMMARY
+    # tables that are meant to be opened and read by a person.
+    'data_results': SCRIPT_DIR / 'data_results',
+    'data_grand_totals': SCRIPT_DIR / 'data_grand_totals',
 }
 
 # ============================================================================
@@ -466,8 +479,8 @@ print("\nSaving individual combination results...")
 n_saved = 0
 for key, df in results_storage.items():
     segment, category, size = key
-    filename = OUTPUT_FOLDERS['csv_results'] / f'results_{segment}_{category}_{size}.csv'
-    df.to_csv(filename, index=False)
+    filename = OUTPUT_FOLDERS['data_results'] / f'results_{segment}_{category}_{size}.pkl'
+    df.to_pickle(filename)
     n_saved += 1
 print(f"  ✓ Saved {n_saved} result files")
 
@@ -477,8 +490,8 @@ n_saved = 0
 for size in SIZES + ['Total']:
     for segment in SEGMENTS:
         df = pd.DataFrame(grand_totals[size][segment])
-        filename = OUTPUT_FOLDERS['csv_grand_totals'] / f'grand_total_{segment}_{size}.csv'
-        df.to_csv(filename, index=False)
+        filename = OUTPUT_FOLDERS['data_grand_totals'] / f'grand_total_{segment}_{size}.pkl'
+        df.to_pickle(filename)
         n_saved += 1
 print(f"  ✓ Saved {n_saved} grand total files")
 
@@ -1031,16 +1044,16 @@ else:
                  + [c for c in STAT_COLS if c in merged.columns] + ['Scale'])
     year_df = merged[year_cols].sort_values(['Year', 'Segment', 'Category',
                                              'Size', 'Element'])
-    out = OUTPUT_FOLDERS['csv_results'] / 'element_mass_by_year.csv'
-    year_df.to_csv(out, index=False)
-    print(f"  ✓ {len(year_df):,} rows -> csv_results/{out.name}")
+    out = OUTPUT_FOLDERS['data_results'] / 'element_mass_by_year.pkl'
+    year_df.to_pickle(out)
+    print(f"  ✓ {len(year_df):,} rows -> data_results/{out.name}")
 
     # Per-segment element totals across all categories and sizes
     tot = (year_df.groupby(['Year', 'Segment', 'Element'])['Mean_g']
            .sum().reset_index())
-    out2 = OUTPUT_FOLDERS['csv_results'] / 'element_mass_totals_by_year.csv'
-    tot.to_csv(out2, index=False)
-    print(f"  ✓ {len(tot):,} rows -> csv_results/{out2.name}")
+    out2 = OUTPUT_FOLDERS['data_results'] / 'element_mass_totals_by_year.pkl'
+    tot.to_pickle(out2)
+    print(f"  ✓ {len(tot):,} rows -> data_results/{out2.name}")
 
     print("\n  Total element mass per vehicle, 2025 -> 2070:")
     for seg in SEGMENTS:
