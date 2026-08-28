@@ -4,8 +4,8 @@ Short guide to what changed in `BevWiring.py`, how to run it, and where every
 number comes from. Written 2026-08-05.
 
 Full reasoning: `../docs/05_ADAS_SENSOR_ADOPTION_REPORT.md`.
-Model handover: `BevWiring_STATUS.md`. Argument for the change:
-`AUTONOMY_LEVELS_VS_HARDWARE.md`.
+Model handover: `docs/model_notes/02_WIRING_STATUS.md`. Argument for the change:
+`docs/model_notes/04_AUTONOMY_LEVELS_VS_HARDWARE.md`.
 
 ---
 
@@ -172,7 +172,7 @@ To compare against the old behaviour, check out the code that ran it:
 git show 554633e:Wiring/BevWiring.py > /tmp/BevWiring_levelaxis.py
 ```
 
-`Wiring/MODEL_HISTORY.md` records why each generation was replaced. Note that
+`docs/model_notes/01_WIRING_MODEL_HISTORY.md` records why each generation was replaced. Note that
 `Data/15_` and `16_` were deleted on 2026-08-05, so generations older than v5
 will not run without restoring those too.
 
@@ -191,7 +191,7 @@ will not run without restoring those too.
 3. **Substitution is still not modelled.** `Presence_per_Tier` row 9
    (`ADAS camera ECU (basic)`) *declines* as rows 10 and 11 rise — the smart
    camera is absorbed into the domain controller. That is a real substitution,
-   and like the CAN/Ethernet case in `BevWiring_STATUS.md` §10 it is currently
+   and like the CAN/Ethernet case in `docs/model_notes/02_WIRING_STATUS.md` §10 it is currently
    drawn as independent. It affects category-level statements, not segment totals.
 4. **CORRECTED 2026-08-07.** ~~`Presence_per_Tier` is not yet consumed by any
    code.~~ It **is** consumed -- `SensorNumbersMC.py` has read it since

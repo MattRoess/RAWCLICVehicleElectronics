@@ -1,7 +1,7 @@
 # BEV wiring model — living status
 
 **Current model: `Wiring/BevWiring.py`** (generation 5; v3 and v4 were deleted
-on 2026-08-05 — `MODEL_HISTORY.md` records why each was replaced).
+on 2026-08-05 — `docs/model_notes/01_WIRING_MODEL_HISTORY.md` records why each was replaced).
 Last updated 2026-08-07. This is the single handover document.
 
     python3 Wiring/BevWiring.py          # ~4 min at 200,000 iterations
@@ -10,8 +10,8 @@ Last updated 2026-08-07. This is the single handover document.
 > SAE certification level. It is keyed on an installed **hardware tier** H0–H4,
 > plus a separate lidar driver and a post-2040 scenario driver, all in
 > `Data/19_ADAS_sensor_adoption.xlsx`. Read
-> **`IMPLEMENTATION_GUIDE.md`** before touching the code and
-> **`AUTONOMY_LEVELS_VS_HARDWARE.md`** for why. Sections 2, 8, 9 and 11 below
+> **`docs/model_notes/03_WIRING_IMPLEMENTATION_GUIDE.md`** before touching the code and
+> **`docs/model_notes/04_AUTONOMY_LEVELS_VS_HARDWARE.md`** for why. Sections 2, 8, 9 and 11 below
 > are updated; the rest is unchanged.
 
 ---
@@ -21,8 +21,8 @@ Last updated 2026-08-07. This is the single handover document.
 | File | Role |
 |---|---|
 | `Wiring/BevWiring.py` | **the model** |
-| `Wiring/IMPLEMENTATION_GUIDE.md` | **how the tier axis works, and how to switch scenarios** |
-| `Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md` | why certification was the wrong key |
+| `docs/model_notes/03_WIRING_IMPLEMENTATION_GUIDE.md` | **how the tier axis works, and how to switch scenarios** |
+| `docs/model_notes/04_AUTONOMY_LEVELS_VS_HARDWARE.md` | why certification was the wrong key |
 | `docs/05_ADAS_SENSOR_ADOPTION_REPORT.md` | the sensor-adoption reasoning; every number tagged FACT / DERIVED / ASSUMPTION |
 | `Wiring/outputs/data/bev_wiring_stats.csv` | 20,808 rows — mean, P2.5, median, mode, P97.5, every year |
 | `Wiring/outputs/data/bev_wiring_histograms.csv` | 142,800 rows — 408 series × 7 snapshot years × **50 bins** |
@@ -33,7 +33,7 @@ Last updated 2026-08-07. This is the single handover document.
 | `Data/20_scenarios.xlsx` | **PROJECT-WIDE scenario selection — sheet `Control` cell B4 drives every model** |
 | `tools/make_19_adas_sensor_adoption.py` | regenerates `19_` from the report |
 | `tools/make_20_scenarios.py` | regenerates `20_` |
-| `Wiring/MODEL_HISTORY.md` | why v3 and v4 were replaced, why `15_`/`16_` were retired, and the user decisions still in force |
+| `docs/model_notes/01_WIRING_MODEL_HISTORY.md` | why v3 and v4 were replaced, why `15_`/`16_` were retired, and the user decisions still in force |
 
 ---
 
@@ -62,7 +62,7 @@ grants liability transfer. Volvo's EX90 carries 31 sensors and is certified L2;
 BMW's i7 carried 25 and was certified L3. Certified L3 is being *withdrawn* in
 Europe (Mercedes paused Drive Pilot, BMW discontinued Personal Pilot L3) while
 sensor content keeps rising — so a level-keyed model gets the near-term trend
-backwards. Full argument in `AUTONOMY_LEVELS_VS_HARDWARE.md`.
+backwards. Full argument in `docs/model_notes/04_AUTONOMY_LEVELS_VS_HARDWARE.md`.
 
 The old autonomy driver was **deleted on 2026-08-10** — flag, function, sheets
 and levers. It had not driven the answer since 2026-08-06 but still looked live,
@@ -251,7 +251,7 @@ The ADAS block still supplies roughly a quarter of the 2070 answer:
 **The instruction set is `docs/05_ADAS_SENSOR_ADOPTION_REPORT.md`
 §6**, with the numbers in `19_` sheet `Presence_per_Tier` — 12 ADAS components
 × tiers H0–H4, already written and validated but **not yet consumed by any
-code**. `SensorNumbersMC/SENSOR_WIRING_INTERFACE.md` still holds the useful
+code**. `docs/model_notes/05_SENSOR_WIRING_INTERFACE.md` still holds the useful
 background; read "level" as "tier" throughout it.
 
 The fix stays small because the sensor model's **Std / Opt / Rare presence

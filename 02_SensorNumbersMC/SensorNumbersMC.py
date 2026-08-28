@@ -304,7 +304,7 @@ print("  800V share at {}: ".format(BASE_YEAR)
 #
 # WHY TIER AND NOT SAE LEVEL. A car does not gain a sensor because a regulator
 # grants liability transfer. Volvo's EX90 carries 31 sensors at L2; BMW's i7
-# carried 25 at L3. See Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md.
+# carried 25 at L3. See docs/model_notes/04_AUTONOMY_LEVELS_VS_HARDWARE.md.
 #
 # LIDAR IS NOT TIER-GOVERNED. It tracks cost and Chinese competitive pressure,
 # so its presence comes from Driver B (19_ sheet Lidar), not from the tier mix.

@@ -9,7 +9,7 @@ Written 2026-08-10. **Nothing here is implemented.** This is the document that
 gets agreed before code, per the project's sequencing rule.
 
 Companions: `04_SENSOR_MODEL_DESIGN.md`, `05_ADAS_SENSOR_ADOPTION_REPORT.md`,
-`../Wiring/IMPLEMENTATION_GUIDE.md`.
+`docs/model_notes/03_WIRING_IMPLEMENTATION_GUIDE.md`.
 
 ---
 
@@ -145,7 +145,7 @@ never assumed:
 **This is the renormalisation trap for the fourth time in this project.**
 Applying a Chinese-brand uplift on top of the existing table without backing the
 blend out would count the same 10% twice — exactly the failure documented as the
-#1 silent breaker in `BevWiring_STATUS.md` §5.
+#1 silent breaker in `docs/model_notes/02_WIRING_STATUS.md` §5.
 
 **Anchor for the Chinese-brand table.** DiPilot 100 — 12 cameras, 5 radars,
 12 ultrasonics — maps onto **H3** in `19_` sheet `Tiers` (8–12 cameras, 5 radar,

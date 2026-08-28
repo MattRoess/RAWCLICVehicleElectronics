@@ -93,6 +93,22 @@ records what changed, what was decided, and what was left open.
 
 ---
 
+## 8 — Working notes per model
+
+`model_notes/` — status, history and interface notes that belong to one model.
+Kept out of the numbered reading order because they are reference, not a path
+through the project. They used to sit next to the code; they do not any more.
+
+| | |
+|---|---|
+| `01_WIRING_MODEL_HISTORY.md` | why the wiring model reached generation 5, and what each generation got wrong |
+| `02_WIRING_STATUS.md` | the wiring model's own status and open items |
+| `03_WIRING_IMPLEMENTATION_GUIDE.md` | how the year axis and drivers were built into it |
+| `04_AUTONOMY_LEVELS_VS_HARDWARE.md` | why the axis is installed hardware tier, not SAE certification |
+| `05_SENSOR_WIRING_INTERFACE.md` | the contract between the sensor and wiring models |
+
+---
+
 ## Where the outputs are
 
 | | |

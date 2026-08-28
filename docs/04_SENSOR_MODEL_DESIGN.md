@@ -7,8 +7,8 @@ Written 2026-08-05. **Nothing in here is implemented yet.** This is the
 document that gets agreed before code, per the project's own sequencing rule.
 
 Companions: `05_ADAS_SENSOR_ADOPTION_REPORT.md` (the sensor evidence
-base), `../Wiring/IMPLEMENTATION_GUIDE.md` (how the same job was done for
-wiring), `../Wiring/BevWiring_STATUS.md`.
+base), `docs/model_notes/03_WIRING_IMPLEMENTATION_GUIDE.md` (how the same job was done for
+wiring), `docs/model_notes/02_WIRING_STATUS.md`.
 
 ---
 

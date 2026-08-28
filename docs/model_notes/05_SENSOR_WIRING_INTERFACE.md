@@ -15,7 +15,7 @@ Written 2026-08-04. Revised 2026-08-05.
 >    H0–H4. Wiring follows hardware, not the certificate — Volvo's EX90 carries
 >    31 sensors at L2, BMW's i7 carried 25 at L3, and certified L3 is being
 >    *withdrawn* in Europe while sensor content rises. Rationale:
->    `../Wiring/AUTONOMY_LEVELS_VS_HARDWARE.md`.
+>    `docs/model_notes/04_AUTONOMY_LEVELS_VS_HARDWARE.md`.
 > 2. **BOTH models are now on the tier axis.** `BevWiring.py` moved on
 >    2026-08-05, `SensorNumbersMC.py` on 2026-08-06. The old SAE-level path was
 >    deleted outright on 2026-08-10.
@@ -30,8 +30,8 @@ Written 2026-08-04. Revised 2026-08-05.
 > Std/Opt/Rare presence factor is already a penetration share. Read "level" as
 > "tier" throughout what follows.
 
-Companion to `Wiring/BevWiring_STATUS.md` and
-`Wiring/IMPLEMENTATION_GUIDE.md`.
+Companion to `docs/model_notes/02_WIRING_STATUS.md` and
+`docs/model_notes/03_WIRING_IMPLEMENTATION_GUIDE.md`.
 
 ---
 

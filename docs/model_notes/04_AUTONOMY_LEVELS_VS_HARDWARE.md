@@ -4,8 +4,8 @@
 *installed sensor hardware*, but the autonomy axis in `18_` is keyed on *SAE
 certification level* — and those two things have come apart.
 
-Written 2026-08-05. Companion to `BevWiring_STATUS.md` (section 9, open item 4)
-and `../SensorNumbersMC/SENSOR_WIRING_INTERFACE.md`.
+Written 2026-08-05. Companion to `docs/model_notes/02_WIRING_STATUS.md` (section 9, open item 4)
+and `docs/model_notes/05_SENSOR_WIRING_INTERFACE.md`.
 
 ---
 
@@ -213,7 +213,7 @@ from shares derived from a **certification-based** global fleet table
 
 ## 4. Open item 4 revisited
 
-Open item 4 in `BevWiring_STATUS.md` frames `Fleet_to_NewSales_lead_y = 7` as
+Open item 4 in `docs/model_notes/02_WIRING_STATUS.md` frames `Fleet_to_NewSales_lead_y = 7` as
 set too high, breaching the report's "private L4/L5 < 5% through 2035". That
 framing does not survive the EF data:
 

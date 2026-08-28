@@ -10,7 +10,7 @@ The step table in §6 is the authoritative status.
 
 Companions: `04_SENSOR_MODEL_DESIGN.md` (the same job, for sensors),
 `07_STATIC_MODELS_DIAGNOSTIC.md` (what is currently frozen),
-`../Wiring/IMPLEMENTATION_GUIDE.md`.
+`docs/model_notes/03_WIRING_IMPLEMENTATION_GUIDE.md`.
 
 ---
 
@@ -229,7 +229,7 @@ transition in this project.
 
 #### How to sample it
 
-`BevWiring_STATUS.md` §10 analysed the identical structure for CAN versus
+`docs/model_notes/02_WIRING_STATUS.md` §10 analysed the identical structure for CAN versus
 Ethernet and recommended **option 2, substitution groups**:
 
 > *Draw the GROUP total first, then draw the split between members.

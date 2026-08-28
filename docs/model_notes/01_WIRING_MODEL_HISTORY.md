@@ -2,7 +2,7 @@
 
 Record of why earlier generations of the model, and the data files behind them,
 were replaced. **Nothing here is current.** The live model is `BevWiring.py`
-and the living handover document is `BevWiring_STATUS.md`.
+and the living handover document is `docs/model_notes/02_WIRING_STATUS.md`.
 
 Written 2026-08-05, consolidating `Wiring/Archive/README.md` and
 `Wiring/Archive/BevWiringV4_STATUS.md` before that directory was deleted. The
@@ -51,7 +51,7 @@ exists, and the reason no future version should reintroduce it:
 ## 3. Two contradictions found inside the source report
 
 Both were found while building `17_`, both still matter, and both are carried
-forward in `BevWiring_STATUS.md`. Recorded here because this is where the
+forward in `docs/model_notes/02_WIRING_STATUS.md`. Recorded here because this is where the
 evidence was first assembled.
 
 ### 3.1 The per-category copper column does not sum
@@ -108,7 +108,7 @@ Taken during v4 development and still binding unless explicitly revisited:
 
 ## 5. Items from v4 that are still open
 
-Carried into `BevWiring_STATUS.md` §11 unless noted:
+Carried into `docs/model_notes/02_WIRING_STATUS.md` §11 unless noted:
 
 1. **EF +100 m** — see §3.1. Patched by `SEGMENT_LENGTH_CALIBRATION`; bad row
    unfound.
