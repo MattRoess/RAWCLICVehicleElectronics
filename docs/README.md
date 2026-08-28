@@ -88,7 +88,8 @@ records what changed, what was decided, and what was left open.
 | `HANDOVER_2026-08-09.md` | the long-running project handover |
 | `HANDOVER_2026-08-10.md` | accumulator port (step P-d) |
 | `HANDOVER_2026-08-12.md` | superseded by the next one |
-| **`HANDOVER_2026-08-13.md`** | **the current one — start here if you are picking the project up** |
+| `HANDOVER_2026-08-13.md` | joint Monte Carlo, steps 1–4 |
+| **`HANDOVER_2026-08-28.md`** | **the current one — start here if you are picking the project up** |
 
 ---
 
