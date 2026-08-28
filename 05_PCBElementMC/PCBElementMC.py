@@ -34,7 +34,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 # Define paths relative to the script location
 BASE_DIR = SCRIPT_DIR.parent
-HISTOGRAM_FOLDER = BASE_DIR / "PCBAreaMC" / "histograms"
+HISTOGRAM_FOLDER = BASE_DIR / "04_PCBAreaMC" / "histograms"
 COMPOSITION_FILE = BASE_DIR / "Data" / "04_VehiclePCBComposition.xlsx"
 
 # Output folders (created inside PCBElementMC/)
@@ -1007,7 +1007,7 @@ print("="*80)
 # come out at scale 1.000 in every year.
 # ============================================================================
 
-SCALE_DIR = BASE_DIR / "PCBAreaMC" / "csv_monte_carlo"
+SCALE_DIR = BASE_DIR / "04_PCBAreaMC" / "csv_monte_carlo"
 _scale_files = {s: SCALE_DIR / f'pcb_year_scale_{s}.csv' for s in SEGMENTS}
 
 print("\n" + "="*80)

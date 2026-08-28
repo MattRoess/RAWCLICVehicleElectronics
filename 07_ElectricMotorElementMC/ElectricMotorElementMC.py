@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -61,15 +62,21 @@ DATA_DIR     = (HERE.parent / "Data").resolve()
 XLSX_FILE    = DATA_DIR / "10_MaterialElementDefinitions.xlsx"
 
 # Folder produced by ElectricMotorMC.py that contains the material histogram CSVs
-MAT_HIST_DIR = HERE.parent / "ElectricMotorMC" / "materials_histograms_csv"
+MAT_HIST_DIR = HERE.parent / "06_ElectricMotorMC" / "materials_histograms_csv"
 
 # Output roots
 CU_ROOT       = HERE / "CopperElemental"
 ESTL_ROOT     = HERE / "ElectricalSteelElemental"
-NDFEB_ROOT    = HERE / "NdFeBElemental"
+# NAMED FOR THE ROLE, NOT THE CHEMISTRY. This is "the magnet stream", whatever
+# magnet material is currently modelled. Naming it after the material -- it was
+# NdFeBElemental until 2026-08-13 -- orphans the old folder the moment the
+# chemistry changes, and the orphan then sits in the tree holding superseded
+# numbers that a glob can still pick up. The Stream column inside the data
+# records the actual chemistry; the folder does not need to.
+MAGNET_ROOT   = HERE / "MagnetElemental"
 CFSTEEL_ROOT  = HERE / "CastFeSteelElemental"
 
-for root in [CU_ROOT, ESTL_ROOT, NDFEB_ROOT, CFSTEEL_ROOT]:
+for root in [CU_ROOT, ESTL_ROOT, MAGNET_ROOT, CFSTEEL_ROOT]:
     for sub in ["summary_csv", "histograms_csv", "distribution_figures", "sensitivity_figures"]:
         (root / sub).mkdir(parents=True, exist_ok=True)
 
@@ -140,6 +147,62 @@ NDFEB_ELEMENTS = ["Nd", "Fe", "B", "Dy", "Tb", "Pr", "Co", "Al", "Cu", "Nb", "Ga
 # so a small gap is ordinary rounding in the published grade table; a large one
 # means the sheet's rows contradict each other and should be re-read.
 NDFEB_FE_TOL = 0.02
+
+# ---------------------------------------------------------------------------
+# PERMANENT MAGNETS ARE FERRITE, NOT NdFeB          decided 2026-08-13
+#
+# The magnet mass in every auxiliary motor is now split with a STRONTIUM FERRITE
+# composition. It used to be split with NdFeB, which put 0.37-1.66 kg of
+# neodymium and up to 0.38 kg of dysprosium into the auxiliary motors of a single
+# car -- more rare earth than many traction motors contain.
+#
+# WHY. Auxiliary motors -- window lifters, wipers, blowers, seat adjusters -- use
+# ferrite. NdFeB is a traction-motor and high-value-actuator material. The
+# project's own source already said so and was not being read: the `notes` column
+# of 05_VehicleElectricMotorsWeight.xlsx describes the DC motor magnets as
+# "Strontium/barium ferrite, Sintered NdFeB", while its `material` column says
+# NdFeB and the element model therefore split 100% of the mass as NdFeB.
+#
+# The user's own independent investigation (2026-08-13) went further than the
+# notes: at most a few of the smallest steppers, where there is no room for a
+# ferrite magnet of sufficient strength, might use NdFeB, and those are not
+# separately recycled. Too small to model -> ALL magnet mass is ferrite.
+#
+# BARIUM IS EXCLUDED by the same decision. The sheet offers Barium Ferrite (Y30);
+# it is not used. Strontium ferrite dominates automotive production.
+#
+# WHAT DID NOT CHANGE. The magnet MASS. It comes from 05_ as a fraction of motor
+# mass and is unchanged, so this is a composition switch, not a mass switch. Note
+# that ferrite is far less energy-dense than NdFeB and a ferrite motor needs more
+# magnet for the same torque -- if 05_'s mass fractions were measured on NdFeB
+# motors they would now be low. The notes naming ferrite first suggest they were
+# not, but that is worth revisiting if a source appears.
+#
+# LABEL STILL SAYS NdFeB UPSTREAM. 05_'s `material` column, and therefore every
+# ElectricMotorMC output column and histogram filename, still calls this stream
+# NdFeB. Only the composition applied here has changed. See the STREAMS table.
+# ---------------------------------------------------------------------------
+
+# Elements resolved for strontium ferrite. Ba is deliberately absent -- see above.
+FERRITE_ELEMENTS = ["Sr", "Fe", "O"]
+
+# Grades used, and their weights. Equal thirds by decision: the three Y-grades
+# differ in magnetic performance, not meaningfully in elemental composition, and
+# no source gives their production split. UNIT: none, weights are normalised.
+FERRITE_GRADES = {
+    "Strontium Ferrite (Y30)": 1.0,
+    "Strontium Ferrite (Y35)": 1.0,
+    "Strontium Ferrite (Y40)": 1.0,
+}
+
+FERRITE_SHEET = "PermanentMagnetFerrit"
+FERRITE_COLOR = "#4C6E8A"
+
+# Same role as NDFEB_FE_TOL, for the ferrite balance. UNIT: mass fraction.
+# Wider because 10_'s ferrite rows are mutually inconsistent at their edges: Sr
+# 0.15-0.20 plus O 0.35-0.40 forces Fe into 0.40-0.50, while the sheet's own Fe
+# row stops at 0.45. See the stoichiometry note in load_ferrite_grades.
+FERRITE_FE_TOL = 0.06
 NDFEB_COLOR    = "#8B4513"
 
 # Motor type tokens as they appear in histogram CSV filenames
@@ -253,20 +316,14 @@ def add_kde(ax, x: np.ndarray, color: str) -> None:
 # electrical steel, NdFeB and cast steel masses all belong to it.
 # --------------------------------------------------------------------------
 
-MAT_SAMPLES_DIR = HERE.parent / "ElectricMotorMC" / "materials_samples_csv"
+MAT_SAMPLES_DIR = HERE.parent / "06_ElectricMotorMC" / "materials_samples_csv"
 
 # Which column of ElectricMotorMC's per-draw sample file each stream reads.
 # The stream keys are this model's internal names; the column names are
 # ElectricMotorMC's material names, listed in the companion .json.
 # NOTE cfsteel -> "Steel": ElectricMotorMC calls it Steel, this model calls the
 # same material Cast Fe Steel. Same quantity, two names.
-STREAM_MATERIAL_COL = {
-    "copper":  "mass_kg__Copper",
-    "esteel":  "mass_kg__ElectricalSteel",
-    "ndfeb":   "mass_kg__NdFeB",
-    "cfsteel": "mass_kg__Steel",
-}
-
+# (the mass column now lives in each Stream entry as `mass_col`)
 # Materials ElectricMotorMC puts in a motor that this model does not break down
 # into elements. Aluminium IS an element and is folded into `Al`; plastic is not
 # resolved further and is carried under its own name.
@@ -359,7 +416,7 @@ def load_material_draws(stem: str, stream: str, n: int) -> np.ndarray:
         stem:   the histogram stem this case was discovered under, e.g.
                 "hist_materialmass_CD_MediumDCMotors_metal_Steel". Only used to
                 recover the case; the histogram itself is not read.
-        stream: "copper" | "esteel" | "ndfeb" | "cfsteel".
+        stream: a key of STREAMS.
         n:      draws wanted. UNIT: draws.
 
     Returns:
@@ -372,8 +429,8 @@ def load_material_draws(stem: str, stream: str, n: int) -> np.ndarray:
     function exists to fix. Set N_SAMPLES to the full file length to use every
     draw and resample nothing at all.
     """
-    if stream not in STREAM_MATERIAL_COL:
-        raise KeyError(f"no material column mapped for stream {stream!r}")
+    if stream not in STREAMS:
+        raise KeyError(f"no stream {stream!r} in STREAMS")
 
     # "hist_materialmass_<CASE>_<Material>" -> "<CASE>"
     parts = stem.split("_")
@@ -389,7 +446,7 @@ def load_material_draws(stem: str, stream: str, n: int) -> np.ndarray:
             f"the pairing between materials of the same motor.")
 
     cols = json.load(open(js))["columns"]
-    want = STREAM_MATERIAL_COL[stream]
+    want = STREAMS[stream].mass_col
     if want not in cols:
         raise KeyError(f"{npy.name} has no column {want!r}; it has {cols}")
 
@@ -576,7 +633,7 @@ def build_label(stem: str, stream: str) -> str:
     # parts[0]="hist", parts[1]="materialmass", parts[-1]=material name
     inner = parts[2:-1]
 
-    if stream == "ndfeb":
+    if stream == "magnet":
         seg, motor_token = parse_csv_filename(stem)
         if seg and motor_token:
             # Use the canonical motor key name (not the lowercase token)
@@ -588,230 +645,212 @@ def build_label(stem: str, stream: str) -> str:
         return "_".join(inner)
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# COPPER — grade loading & composition sampling
-# ────────────────────────────────────────────────────────────────────────────
-def load_copper_grades(xlsx: Path) -> Dict[str, Dict[str, Tuple[float, float]]]:
-    df = pd.read_excel(xlsx, sheet_name="Copper", header=0)
-    df.columns = [str(c).strip() for c in df.columns]
-    df["Grade"] = df["Grade"].astype(str).str.strip()
-    df["Range"] = df["Range"].astype(str).str.strip().str.lower()
+# ===========================================================================
+# THE STREAM TABLE
+#
+# One row per material stream. Everything that differs between copper,
+# electrical steel, the magnets and the housing steel lives HERE, as data --
+# which sheet of 10_ to read, which elements, which grades and their weights,
+# whether an element is the balance, and which mass column of ElectricMotorMC's
+# per-draw file the stream is splitting.
+#
+# WHY THIS EXISTS. Until 2026-08-13 each material had its own loader function,
+# its own sampler function, and a branch in two hardcoded `if stream == ...`
+# config blocks. Switching the magnets from NdFeB to strontium ferrite -- a pure
+# COMPOSITION change, which is data -- therefore required five code edits and
+# orphaned an output folder. The project rule it broke:
+#
+#     A change of composition must not change the structure or the run design.
+#
+# With this table, changing a material is one entry. Adding one is one entry.
+# Nothing else in the file needs to know a material exists.
+#
+# ADDING OR CHANGING A MATERIAL
+#   1. put its grades in Data/10_MaterialElementDefinitions.xlsx
+#   2. add or edit its Stream entry below
+#   3. re-run. There is no step 3.
+# ===========================================================================
 
-    grades: Dict[str, Dict[str, Tuple[float, float]]] = {}
-    for grade in CU_GRADES:
-        sub     = df[df["Grade"] == grade]
-        row_min = sub[sub["Range"] == "min"].iloc[0]
-        row_max = sub[sub["Range"] == "max"].iloc[0]
-        elems: Dict[str, Tuple[float, float]] = {}
-        for col in RATIO_COLS:
-            elems[col] = (float(row_min[col]), float(row_max[col]))
-        for col in PPM_COLS:
-            elems[col] = (float(row_min[col]) / 1e6, float(row_max[col]) / 1e6)
-        grades[grade] = elems
-    return grades
+@dataclass(frozen=True)
+class Stream:
+    """One material stream: where to read it, how to sample it, where it goes.
 
-
-def sample_copper_composition(
-    grades: Dict[str, Dict[str, Tuple[float, float]]],
-    rng: np.random.Generator,
-    n: int,
-) -> Tuple[List[str], np.ndarray]:
-    """Equal-weight mean of ETP, OF, OFE grades."""
-    elements = list(next(iter(grades.values())).keys())
-    n_elem   = len(elements)
-    acc      = np.zeros((n, n_elem), dtype=float)
-    for grade, weight in CU_WEIGHTS.items():
-        for e_idx, elem in enumerate(elements):
-            lo, hi = grades[grade][elem]
-            acc[:, e_idx] += weight * uniform(rng, lo, hi, n)
-    return elements, acc
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# ELECTRICAL STEEL — grade loading & composition sampling
-# ────────────────────────────────────────────────────────────────────────────
-def load_esteel_grades(xlsx: Path) -> Dict[str, Dict[str, Tuple[float, float]]]:
-    df = pd.read_excel(xlsx, sheet_name="ElectricalSteel", header=0)
-    df.columns = [str(c).strip() for c in df.columns]
-    df["Grade"] = df["Grade"].astype(str).str.strip()
-    df["Range"] = df["Range"].astype(str).str.strip().str.lower()
-
-    grades: Dict[str, Dict[str, Tuple[float, float]]] = {}
-    for grade in df["Grade"].unique():
-        sub = df[df["Grade"] == grade]
-        if sub[sub["Range"] == "min"].empty or sub[sub["Range"] == "max"].empty:
-            continue
-        row_min = sub[sub["Range"] == "min"].iloc[0]
-        row_max = sub[sub["Range"] == "max"].iloc[0]
-        elems: Dict[str, Tuple[float, float]] = {}
-        for col in ESTL_ELEMENTS:
-            elems[col] = (float(row_min[col]), float(row_max[col]))
-        grades[grade] = elems
-    return grades
-
-
-def sample_esteel_composition(
-    grades: Dict[str, Dict[str, Tuple[float, float]]],
-    weights: Dict[str, float],
-    rng: np.random.Generator,
-    n: int,
-) -> Tuple[List[str], np.ndarray]:
-    """Weighted mean across grades; Fe = 1 − Σ(others), clamped to [0,1]."""
-    total_w = sum(weights.values())
-    norm_w  = {g: w / total_w for g, w in weights.items()}
-
-    n_other = len(ESTL_ELEMENTS)
-    acc     = np.zeros((n, n_other), dtype=float)
-    for grade, weight in norm_w.items():
-        if grade not in grades:
-            raise KeyError(f"Grade '{grade}' not found in ElectricalSteel sheet.")
-        for e_idx, elem in enumerate(ESTL_ELEMENTS):
-            lo, hi = grades[grade][elem]
-            acc[:, e_idx] += weight * uniform(rng, lo, hi, n)
-
-    fe        = np.clip(1.0 - acc.sum(axis=1), 0.0, 1.0)
-    fractions = np.column_stack([fe, acc])
-    elements  = ["Fe"] + ESTL_ELEMENTS
-    return elements, fractions
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# NdFeB — grade loading & composition sampling
-# ────────────────────────────────────────────────────────────────────────────
-def load_ndfeb_grades(xlsx: Path) -> Dict[str, Dict[str, Tuple[float, float]]]:
-    df = pd.read_excel(xlsx, sheet_name="PermanentMagnetNdFeB", header=0)
-    df.columns = [str(c).strip() for c in df.columns]
-    df["Grade"] = df["Grade"].astype(str).str.strip()
-    df["Range"] = df["Range"].astype(str).str.strip().str.lower()
-
-    grades: Dict[str, Dict[str, Tuple[float, float]]] = {}
-    for grade in df["Grade"].unique():
-        sub = df[df["Grade"] == grade]
-        rows_min = sub[sub["Range"] == "min"]
-        rows_max = sub[sub["Range"] == "max"]
-        if rows_min.empty or rows_max.empty:
-            continue
-        row_min = rows_min.iloc[0]
-        row_max = rows_max.iloc[0]
-        elems: Dict[str, Tuple[float, float]] = {}
-        for col in NDFEB_ELEMENTS:
-            elems[col] = (float(row_min[col]), float(row_max[col]))
-        grades[grade] = elems
-    return grades
-
-
-def sample_ndfeb_composition(
-    grades: Dict[str, Dict[str, Tuple[float, float]]],
-    weights: Dict[str, float],
-    rng: np.random.Generator,
-    n: int,
-) -> Tuple[List[str], np.ndarray]:
+    Fields:
+        key:        internal name, and the file prefix of everything it writes.
+                    NAMED FOR ITS ROLE, never for its current chemistry -- the
+                    magnet stream stays "magnet" whatever magnet it models.
+        label:      human name, used in figure titles and the Stream column.
+                    THIS is where the chemistry is recorded.
+        folder:     output root.
+        color:      figure colour.
+        sheet:      sheet of 10_MaterialElementDefinitions.xlsx.
+        mass_col:   column of ElectricMotorMC's materials_samples_csv/*.npy
+                    holding this stream's per-draw mass. UNIT: kg.
+        grades:     grade names to read from the sheet.
+        order:      element output order. Includes the balance element.
+        ratio_cols: element columns read as-is (already mass fractions).
+        ppm_cols:   element columns given in ppm; divided by 1e6 on read.
+        balance:    element computed as 1 - sum(others), or None if the sheet's
+                    fractions are already complete. See sample_composition.
+        weights:    (segment, motor_token) -> {grade: weight}. A callable rather
+                    than a dict because electrical steel's grade mix depends on
+                    segment, and NdFeB's depended on segment AND motor type.
+        balance_tol: warn if the computed balance falls this far outside the
+                    sheet's own stated range for that element. None to skip.
     """
-    Weighted mean composition across NdFeB grades. Fe is the BALANCE element.
-    Weights are normalised to sum=1.
-    Returns (element_names, mean_fractions[n, n_elem]).
+    key: str
+    label: str
+    folder: Path
+    color: str
+    sheet: str
+    mass_col: str
+    grades: List[str]
+    order: List[str]
+    ratio_cols: List[str]
+    ppm_cols: List[str]
+    balance: str | None
+    weights: object
+    hist_globs: List[str] = field(default_factory=list)
+    balance_tol: float | None = None
 
-    FE IS COMPUTED AS 1 - sum(others), NOT DRAWN. Fixed 2026-08-13.
+    @property
+    def drawn(self) -> List[str]:
+        """Elements actually sampled -- everything except the balance."""
+        return [e for e in self.order if e != self.balance]
 
-    Until then every element including Fe was drawn independently between its
-    own min and max, and nothing made the eleven fractions sum to 1. Measured
-    over the twelve cases the sum ran from 0.982 to 1.113, mean 1.041 -- so a
-    kilogram of magnet was turned into 1.041 kg of elements, and the error was
-    worst where NdFeB content is highest. The other three streams never had
-    this problem: Cast Fe Steel and Electrical Steel already treat Fe as the
-    balance, which is the pattern followed here.
 
-    This is the physically right constraint as well as the arithmetically right
-    one: NdFeB is Nd2Fe14B with substitutions, iron makes up the remainder by
-    definition, and the sheet's Fe row is a reported range rather than an
-    independent degree of freedom. The drawn balance is checked against that
-    reported range below.
+STREAMS: Dict[str, Stream] = {
+    "copper": Stream(
+        key="copper", label="Copper", folder=CU_ROOT, color=COPPER_COLOR,
+        sheet="Copper", mass_col="mass_kg__Copper",
+        grades=CU_GRADES, order=RATIO_COLS + PPM_COLS,
+        ratio_cols=RATIO_COLS, ppm_cols=PPM_COLS,
+        balance=None,
+        weights=lambda seg, motor: CU_WEIGHTS,
+        hist_globs=["hist_materialmass_*_Copper.csv"],
+    ),
+    "esteel": Stream(
+        key="esteel", label="Electrical Steel", folder=ESTL_ROOT, color=ESTL_COLOR,
+        sheet="ElectricalSteel", mass_col="mass_kg__ElectricalSteel",
+        grades=sorted({g for w in ESTL_SEGMENT_WEIGHTS.values() for g in w}),
+        order=["Fe"] + ESTL_ELEMENTS,
+        ratio_cols=ESTL_ELEMENTS, ppm_cols=[],
+        balance="Fe",
+        weights=lambda seg, motor: ESTL_SEGMENT_WEIGHTS[seg],
+        hist_globs=["hist_materialmass_*_ElectricalSteel.csv",
+                    "hist_materialmass_*_electrosteel.csv"],
+    ),
+    # THE MAGNET STREAM. Strontium ferrite since 2026-08-13; it was NdFeB
+    # before. Changing it back, or to anything else, is this entry plus a sheet
+    # in 10_ -- see the note above FERRITE_ELEMENTS for why ferrite is right for
+    # auxiliary motors. The mass column is still called NdFeB because 05_'s
+    # `material` column says so; that is a label upstream, not a composition.
+    "magnet": Stream(
+        key="magnet", label="Strontium Ferrite", folder=MAGNET_ROOT,
+        color=FERRITE_COLOR,
+        sheet=FERRITE_SHEET, mass_col="mass_kg__NdFeB",
+        grades=list(FERRITE_GRADES), order=FERRITE_ELEMENTS,
+        ratio_cols=FERRITE_ELEMENTS, ppm_cols=[],
+        balance="Fe", balance_tol=FERRITE_FE_TOL,
+        weights=lambda seg, motor: FERRITE_GRADES,
+        hist_globs=["hist_materialmass_*_NdFeB.csv",
+                    "hist_materialmass_*_ndfeb.csv"],
+    ),
+    "cfsteel": Stream(
+        key="cfsteel", label="Cast Fe Steel", folder=CFSTEEL_ROOT,
+        color=CFSTEEL_COLOR,
+        sheet="CastFeSteel", mass_col="mass_kg__Steel",
+        grades=["DC01"], order=["Fe"] + CFSTEEL_ELEMENTS,
+        ratio_cols=CFSTEEL_ELEMENTS, ppm_cols=[],
+        balance="Fe",
+        weights=lambda seg, motor: {"DC01": 1.0},
+        hist_globs=["hist_materialmass_*_CastFeSteel.csv",
+                    "hist_materialmass_*_castfesteel.csv",
+                    "hist_materialmass_*_CastFe Steel.csv",
+                    "hist_materialmass_*_Steel.csv",
+                    "hist_materialmass_*_steel.csv"],
+    ),
+}
+
+
+def load_grades(xlsx: Path, spec: Stream) -> Dict[str, Dict[str, Tuple[float, float]]]:
+    """{grade: {element: (min, max)}} for one stream. Replaces four loaders.
+
+    Column headers are stripped on read: the ferrite sheet's header is 'Grade '
+    with a trailing space, and matching on 'Grade' silently returns nothing --
+    the same class of trap as the non-breaking spaces in 11_.
     """
-    total_w = sum(weights.values())
-    norm_w  = {g: w / total_w for g, w in weights.items()}
+    df = pd.read_excel(xlsx, sheet_name=spec.sheet, header=0)
+    df.columns = [str(c).strip() for c in df.columns]
+    df["Grade"] = df["Grade"].astype(str).str.strip()
+    df["Range"] = df["Range"].astype(str).str.strip().str.lower()
 
-    others = [e for e in NDFEB_ELEMENTS if e != "Fe"]
-    acc    = np.zeros((n, len(others)), dtype=float)
-    fe_lo  = fe_hi = 0.0
-
-    for grade, weight in norm_w.items():
-        if grade not in grades:
+    out: Dict[str, Dict[str, Tuple[float, float]]] = {}
+    for grade in spec.grades:
+        sub = df[df["Grade"] == grade]
+        lo_rows, hi_rows = sub[sub["Range"] == "min"], sub[sub["Range"] == "max"]
+        if lo_rows.empty or hi_rows.empty:
             raise KeyError(
-                f"NdFeB grade '{grade}' not found in NdFeB sheet. "
-                f"Available: {list(grades.keys())}"
-            )
-        for e_idx, elem in enumerate(others):
-            lo, hi = grades[grade][elem]
-            acc[:, e_idx] += weight * uniform(rng, lo, hi, n)
-        g_lo, g_hi = grades[grade]["Fe"]
-        fe_lo += weight * g_lo
-        fe_hi += weight * g_hi
-
-    fe = np.clip(1.0 - acc.sum(axis=1), 0.0, 1.0)
-
-    # The balance must land inside the range the sheet reports for Fe. If it
-    # does not, the non-Fe ranges and the Fe range disagree and the sheet needs
-    # looking at -- silently clamping would hide that.
-    if not (fe_lo - NDFEB_FE_TOL <= fe.mean() <= fe_hi + NDFEB_FE_TOL):
-        print(f"    WARNING: NdFeB balance Fe = {fe.mean():.4f} sits outside the "
-              f"sheet's weighted Fe range [{fe_lo:.4f}, {fe_hi:.4f}]. The non-Fe "
-              f"ranges and the Fe range in PermanentMagnetNdFeB disagree.")
-
-    # reassemble in the declared NDFEB_ELEMENTS order so downstream columns and
-    # figures are unchanged
-    col = {e: acc[:, i] for i, e in enumerate(others)}
-    col["Fe"] = fe
-    fractions = np.column_stack([col[e] for e in NDFEB_ELEMENTS])
-    return NDFEB_ELEMENTS, fractions
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# CAST FE STEEL — grade loading & composition sampling
-# ────────────────────────────────────────────────────────────────────────────
-def load_castfesteel_grades(xlsx: Path) -> Dict[str, Dict[str, Tuple[float, float]]]:
-    """Read DC01 from the CastFeSteel sheet."""
-    df = pd.read_excel(xlsx, sheet_name="CastFeSteel", header=0)
-    df.columns = [str(c).strip() for c in df.columns]
-    df["Grade"] = df["Grade"].astype(str).str.strip()
-    df["Range"] = df["Range"].astype(str).str.strip().str.lower()
-
-    grades: Dict[str, Dict[str, Tuple[float, float]]] = {}
-    for grade in ["DC01"]:
-        sub = df[df["Grade"] == grade]
-        if sub[sub["Range"] == "min"].empty or sub[sub["Range"] == "max"].empty:
-            continue
-        row_min = sub[sub["Range"] == "min"].iloc[0]
-        row_max = sub[sub["Range"] == "max"].iloc[0]
+                f"grade {grade!r} needs both a min and a max row in sheet "
+                f"{spec.sheet!r}. Found: {sorted(df['Grade'].unique())}")
+        lo, hi = lo_rows.iloc[0], hi_rows.iloc[0]
         elems: Dict[str, Tuple[float, float]] = {}
-        for col in CFSTEEL_ELEMENTS:
-            elems[col] = (float(row_min[col]), float(row_max[col]))
-        grades[grade] = elems
-    return grades
+        for col in spec.ratio_cols:
+            elems[col] = (float(lo[col]), float(hi[col]))
+        for col in spec.ppm_cols:
+            elems[col] = (float(lo[col]) / 1e6, float(hi[col]) / 1e6)
+        out[grade] = elems
+    return out
 
 
-def sample_castfesteel_composition(
-    grades: Dict[str, Dict[str, Tuple[float, float]]],
-    rng: np.random.Generator,
-    n: int,
-) -> Tuple[List[str], np.ndarray]:
-    """DC01 only; Fe = 1 - sum(others), clamped to [0,1]."""
-    grade = "DC01"
-    if grade not in grades:
-        raise KeyError(
-            f"CastFeSteel grade '{grade}' not found in CastFeSteel sheet. "
-            f"Available: {list(grades.keys())}"
-        )
+def sample_composition(spec: Stream,
+                       grades: Dict[str, Dict[str, Tuple[float, float]]],
+                       rng: np.random.Generator, n: int,
+                       segment: str, motor_token: str | None):
+    """(element_names, fractions[n, n_elem]) for one stream. Replaces four samplers.
 
-    n_other = len(CFSTEEL_ELEMENTS)
-    acc     = np.zeros((n, n_other), dtype=float)
-    for e_idx, elem in enumerate(CFSTEEL_ELEMENTS):
-        lo, hi = grades[grade][elem]
-        acc[:, e_idx] = uniform(rng, lo, hi, n)
+    Each element is drawn uniformly between its min and max, weighted across
+    grades. The balance element is NOT drawn -- it is 1 minus the others, so the
+    fractions sum to exactly 1 by construction.
 
-    fe        = np.clip(1.0 - acc.sum(axis=1), 0.0, 1.0)
-    fractions = np.column_stack([fe, acc])
-    elements  = ["Fe"] + CFSTEEL_ELEMENTS
-    return elements, fractions
+    WHY A BALANCE ELEMENT AT ALL. Drawing every element independently lets a
+    kilogram of material become 0.9-1.1 kg of elements. That is not a rounding
+    concern: NdFeB was doing exactly this until 2026-08-13 and inflated magnet
+    mass by 4.1% on average, up to 11%. Iron is the balance in all three alloys
+    that have one -- it is the majority constituent and the one whose reported
+    range is widest.
+    """
+    w_raw = spec.weights(segment, motor_token)
+    total = sum(w_raw.values())
+    drawn = spec.drawn
+
+    acc = np.zeros((n, len(drawn)), dtype=float)
+    bal_lo = bal_hi = 0.0
+    for grade, w in w_raw.items():
+        weight = w / total
+        if grade not in grades:
+            raise KeyError(f"grade {grade!r} not loaded for stream {spec.key!r}")
+        for i, elem in enumerate(drawn):
+            lo, hi = grades[grade][elem]
+            acc[:, i] += weight * uniform(rng, lo, hi, n)
+        if spec.balance and spec.balance in grades[grade]:
+            g_lo, g_hi = grades[grade][spec.balance]
+            bal_lo += weight * g_lo
+            bal_hi += weight * g_hi
+
+    if spec.balance is None:
+        return list(spec.order), acc
+
+    bal = np.clip(1.0 - acc.sum(axis=1), 0.0, 1.0)
+    if spec.balance_tol is not None and not (
+            bal_lo - spec.balance_tol <= bal.mean() <= bal_hi + spec.balance_tol):
+        print(f"    WARNING: {spec.label} balance {spec.balance} = {bal.mean():.4f} "
+              f"sits outside the sheet's weighted range "
+              f"[{bal_lo:.4f}, {bal_hi:.4f}]. The sheet's rows disagree.")
+
+    col = {e: acc[:, i] for i, e in enumerate(drawn)}
+    col[spec.balance] = bal
+    return list(spec.order), np.column_stack([col[e] for e in spec.order])
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -820,40 +859,26 @@ def sample_castfesteel_composition(
 # for use in grand-total MC aggregation.
 # ────────────────────────────────────────────────────────────────────────────
 def process_stream(
-    hist_csvs: List[Path],
+    stream: str,
     rng: np.random.Generator,
-    stream: str,                    # "copper" | "esteel" | "ndfeb" | "cfsteel"
-    cu_grades: Dict | None,
-    estl_grades: Dict | None,
-    ndfeb_grades: Dict | None,
     summary_rows: list,
-    cfsteel_grades: Dict | None = None,
 ) -> Dict[Tuple[str, str], Dict]:
-    """
-    Process all histogram CSVs for one material stream.
+    """Process one material stream end to end.
+
+    Everything the stream needs -- its sheet, grades, elements, balance, file
+    globs and output folder -- comes from its STREAMS entry. Adding a material
+    does not change this function.
+
     Returns mc_accum: dict keyed by (segment, stream) with accumulated MC arrays
     for grand-total computation.
     """
-    if stream == "copper":
-        color        = COPPER_COLOR
-        title_prefix = "Copper"
-        file_prefix  = "copper"
-        out_root     = CU_ROOT
-    elif stream == "esteel":
-        color        = ESTL_COLOR
-        title_prefix = "Electrical Steel"
-        file_prefix  = "esteel"
-        out_root     = ESTL_ROOT
-    elif stream == "cfsteel":
-        color        = CFSTEEL_COLOR
-        title_prefix = "Cast Fe Steel"
-        file_prefix  = "cfsteel"
-        out_root     = CFSTEEL_ROOT
-    else:  # ndfeb
-        color        = NDFEB_COLOR
-        title_prefix = "NdFeB"
-        file_prefix  = "ndfeb"
-        out_root     = NDFEB_ROOT
+    spec         = STREAMS[stream]
+    hist_csvs    = sorted({f for g in spec.hist_globs for f in MAT_HIST_DIR.glob(g)})
+    grades       = load_grades(XLSX_FILE, spec)
+    color        = spec.color
+    title_prefix = spec.label
+    file_prefix  = spec.key
+    out_root     = spec.folder
 
     dir_hist = out_root / "histograms_csv"
     dir_dist = out_root / "distribution_figures"
@@ -879,37 +904,9 @@ def process_stream(
         mat_mass_kg = load_material_draws(stem, stream, N_SAMPLES)
         print(f"    mass: mean={mat_mass_kg.mean():.4f} kg, std={mat_mass_kg.std():.4f} kg")
 
-        # 2. Sample composition
-        if stream == "copper":
-            elements, mean_fractions = sample_copper_composition(cu_grades, rng, N_SAMPLES)
-
-        elif stream == "esteel":
-            if seg_token not in ESTL_SEGMENT_WEIGHTS:
-                print(f"    WARNING: unknown segment '{seg_token}', skipping.")
-                continue
-            weights = ESTL_SEGMENT_WEIGHTS[seg_token]
-            elements, mean_fractions = sample_esteel_composition(
-                estl_grades, weights, rng, N_SAMPLES
-            )
-
-        elif stream == "cfsteel":
-            elements, mean_fractions = sample_castfesteel_composition(
-                cfsteel_grades, rng, N_SAMPLES
-            )
-
-        else:  # ndfeb
-            if motor_token_lower is None:
-                print(f"    WARNING: cannot resolve motor type from '{stem}', skipping.")
-                continue
-            motor_key = NDFEB_MOTOR_MAP[motor_token_lower]
-            if seg_token not in NDFEB_GRADE_WEIGHTS[motor_key]:
-                print(f"    WARNING: segment '{seg_token}' not in NdFeB table for "
-                      f"'{motor_key}', skipping.")
-                continue
-            weights  = NDFEB_GRADE_WEIGHTS[motor_key][seg_token]
-            elements, mean_fractions = sample_ndfeb_composition(
-                ndfeb_grades, weights, rng, N_SAMPLES
-            )
+        # 2. Sample composition -- one call, whatever the material is
+        elements, mean_fractions = sample_composition(
+            spec, grades, rng, N_SAMPLES, seg_token, motor_token_lower)
 
         # 3. Elemental mass  (N, n_elem)
         elem_mass_kg = mat_mass_kg[:, None] * mean_fractions
@@ -1129,26 +1126,11 @@ def process_grand_totals(
         print(f"      draws -> {ELEM_DRAWS_DIR.name}/motors_{seg}_{stream}_fractions.npy "
               f"{_frac.shape}")
 
-        if stream == "copper":
-            color        = COPPER_COLOR
-            title_prefix = "Copper"
-            file_prefix  = "copper"
-            out_root     = CU_ROOT
-        elif stream == "esteel":
-            color        = ESTL_COLOR
-            title_prefix = "Electrical Steel"
-            file_prefix  = "esteel"
-            out_root     = ESTL_ROOT
-        elif stream == "cfsteel":
-            color        = CFSTEEL_COLOR
-            title_prefix = "Cast Fe Steel"
-            file_prefix  = "cfsteel"
-            out_root     = CFSTEEL_ROOT
-        else:
-            color        = NDFEB_COLOR
-            title_prefix = "NdFeB"
-            file_prefix  = "ndfeb"
-            out_root     = NDFEB_ROOT
+        spec         = STREAMS[stream]
+        color        = spec.color
+        title_prefix = spec.label
+        file_prefix  = spec.key
+        out_root     = spec.folder
 
         dir_hist = out_root / "histograms_csv"
         dir_dist = out_root / "distribution_figures"
@@ -1218,91 +1200,30 @@ def main() -> None:
     rng = np.random.default_rng(RNG_SEED)
 
     print("Loading grade definitions...")
-    cu_grades       = load_copper_grades(XLSX_FILE)
-    estl_grades     = load_esteel_grades(XLSX_FILE)
-    ndfeb_grades    = load_ndfeb_grades(XLSX_FILE)
-    cfsteel_grades  = load_castfesteel_grades(XLSX_FILE)
-    print(f"  Copper grades      : {list(cu_grades.keys())}")
-    print(f"  E-Steel grades     : {list(estl_grades.keys())}")
-    print(f"  NdFeB grades       : {list(ndfeb_grades.keys())}")
-    print(f"  CastFeSteel grades : {list(cfsteel_grades.keys())}")
-    print(f"  CastFeSteel active : {CFSTEEL_ELEMENTS}")
-    print(f"  CastFeSteel excluded: {sorted(_CFSTEEL_EXCLUDED)}  (max=0 for DC01)")
-
-    # ── Discover histogram CSVs ──────────────────────────────────────────────
-    copper_csvs = sorted(MAT_HIST_DIR.glob("hist_materialmass_*_Copper.csv"))
-
-    esteel_csvs = sorted(
-        set(MAT_HIST_DIR.glob("hist_materialmass_*_ElectricalSteel.csv")) |
-        set(MAT_HIST_DIR.glob("hist_materialmass_*_electrosteel.csv"))
-    )
-
-    # NdFeB: filename may contain extra tokens (e.g. _Ferrite_) before _NdFeB.csv
-    ndfeb_csvs = sorted(
-        set(MAT_HIST_DIR.glob("hist_materialmass_*_NdFeB.csv")) |
-        set(MAT_HIST_DIR.glob("hist_materialmass_*_ndfeb.csv"))
-    )
-
-    # CastFeSteel: support multiple naming conventions
-    cfsteel_csvs = sorted(
-        set(MAT_HIST_DIR.glob("hist_materialmass_*_CastFeSteel.csv")) |
-        set(MAT_HIST_DIR.glob("hist_materialmass_*_castfesteel.csv")) |
-        set(MAT_HIST_DIR.glob("hist_materialmass_*_CastFe Steel.csv")) |
-        set(MAT_HIST_DIR.glob("hist_materialmass_*_Steel.csv")) |
-        set(MAT_HIST_DIR.glob("hist_materialmass_*_steel.csv"))
-    )
-
-    print(f"\nFound {len(copper_csvs)} Copper histogram CSV(s)")
-    print(f"Found {len(esteel_csvs)} Electrical Steel histogram CSV(s)")
-    print(f"Found {len(ndfeb_csvs)} NdFeB histogram CSV(s)")
-    print(f"Found {len(cfsteel_csvs)} Cast Fe Steel histogram CSV(s)")
-
-    if not copper_csvs and not esteel_csvs and not ndfeb_csvs and not cfsteel_csvs:
-        raise FileNotFoundError(
-            f"No matching histogram CSVs found in {MAT_HIST_DIR}.\n"
-            "Expected files matching:\n"
-            "  hist_materialmass_*_Copper.csv\n"
-            "  hist_materialmass_*_ElectricalSteel.csv  (or *_electrosteel.csv)\n"
-            "  hist_materialmass_*_NdFeB.csv            (or *_ndfeb.csv)\n"
-            "  hist_materialmass_*_CastFeSteel.csv      (or *_Steel.csv)"
-        )
+    for key, spec in STREAMS.items():
+        g = load_grades(XLSX_FILE, spec)
+        print(f"  {spec.label:20s} sheet {spec.sheet:22s} grades {list(g)}")
 
     summary_rows: list = []
-    # Combined MC accumulator across all streams
     all_mc_accum: Dict[Tuple[str, str], Dict] = {}
 
-    # ── Process Copper ───────────────────────────────────────────────────────
-    if copper_csvs:
-        print("\n" + "=" * 60)
-        print("Processing COPPER stream...")
-        mc = process_stream(copper_csvs, rng, "copper",
-                            cu_grades, None, None, summary_rows)
+    # ── Process every stream in the table ────────────────────────────────────
+    # No per-material branches. Adding a material to STREAMS is the whole change.
+    for key, spec in STREAMS.items():
+        found = sorted({f for g in spec.hist_globs for f in MAT_HIST_DIR.glob(g)})
+        print(f"\nFound {len(found)} {spec.label} histogram CSV(s)")
+        if not found:
+            continue
+        print("=" * 60)
+        print(f"Processing {spec.label.upper()} stream...")
+        mc = process_stream(key, rng, summary_rows)
         all_mc_accum.update(mc)
 
-    # ── Process Electrical Steel ─────────────────────────────────────────────
-    if esteel_csvs:
-        print("\n" + "=" * 60)
-        print("Processing ELECTRICAL STEEL stream...")
-        mc = process_stream(esteel_csvs, rng, "esteel",
-                            None, estl_grades, None, summary_rows)
-        all_mc_accum.update(mc)
-
-    # ── Process NdFeB ────────────────────────────────────────────────────────
-    if ndfeb_csvs:
-        print("\n" + "=" * 60)
-        print("Processing NdFeB stream...")
-        mc = process_stream(ndfeb_csvs, rng, "ndfeb",
-                            None, None, ndfeb_grades, summary_rows)
-        all_mc_accum.update(mc)
-
-    # ── Process Cast Fe Steel ────────────────────────────────────────────────
-    if cfsteel_csvs:
-        print("\n" + "=" * 60)
-        print("Processing CAST FE STEEL stream...")
-        mc = process_stream(cfsteel_csvs, rng, "cfsteel",
-                            None, None, None, summary_rows,
-                            cfsteel_grades=cfsteel_grades)
-        all_mc_accum.update(mc)
+    if not all_mc_accum:
+        raise FileNotFoundError(
+            f"No matching histogram CSVs found in {MAT_HIST_DIR}.\n"
+            "Run ElectricMotorMC.py first. Expected files matching:\n  "
+            + "\n  ".join(g for spec in STREAMS.values() for g in spec.hist_globs))
 
     # ── Grand totals per segment group (full MC) ─────────────────────────────
     if all_mc_accum:
@@ -1312,14 +1233,14 @@ def main() -> None:
 
     # ── Combined summary CSV ─────────────────────────────────────────────────
     df_sum = pd.DataFrame(summary_rows)
-    for root in [CU_ROOT, ESTL_ROOT, NDFEB_ROOT, CFSTEEL_ROOT]:
+    for root in [CU_ROOT, ESTL_ROOT, MAGNET_ROOT, CFSTEEL_ROOT]:
         df_sum.to_csv(root / "summary_csv" / "elemental_summary.csv", index=False)
 
     print("\n" + "=" * 60)
     print("Done.")
     print(f"  Copper outputs       → {CU_ROOT}")
     print(f"  Electrical Steel out → {ESTL_ROOT}")
-    print(f"  NdFeB outputs        → {NDFEB_ROOT}")
+    print(f"  Magnet outputs       → {MAGNET_ROOT}  (strontium ferrite)")
     print(f"  Cast Fe Steel out    → {CFSTEEL_ROOT}")
     print(f"  Combined summary     → elemental_summary.csv (in all summary_csv folders)")
 

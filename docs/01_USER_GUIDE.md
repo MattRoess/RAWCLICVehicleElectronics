@@ -50,13 +50,13 @@ because later models read what earlier ones write:
 
 ```bash
 .venv/bin/python BEVElectronicsClassification.py
-.venv/bin/python Wiring/BevWiring.py
-.venv/bin/python SensorNumbersMC/SensorNumbersMC.py
-.venv/bin/python SensorElementsMC/SensorElementsMC.py
-.venv/bin/python PCBAreaMC/PCBAreaMC.py
-.venv/bin/python PCBElementMC/PCBElementMC.py
-.venv/bin/python ElectricMotorMC/ElectricMotorMC.py
-.venv/bin/python ElectricMotorElementMC/ElectricMotorElementMC.py
+.venv/bin/python 01_Wiring/BevWiring.py
+.venv/bin/python 02_SensorNumbersMC/SensorNumbersMC.py
+.venv/bin/python 03_SensorElementsMC/SensorElementsMC.py
+.venv/bin/python 04_PCBAreaMC/PCBAreaMC.py
+.venv/bin/python 05_PCBElementMC/PCBElementMC.py
+.venv/bin/python 06_ElectricMotorMC/ElectricMotorMC.py
+.venv/bin/python 07_ElectricMotorElementMC/ElectricMotorElementMC.py
 .venv/bin/python tools/build_composition.py
 .venv/bin/python tools/mc_composition.py
 .venv/bin/python tools/plot_composition.py
@@ -70,8 +70,8 @@ and running them out of order produces numbers that look fine and are not:
 
 | this one… | must run after… | because |
 |---|---|---|
-| `PCBElementMC` | `PCBAreaMC` | it reads that model's histograms **and** its year scale factors |
-| `ElectricMotorElementMC` | `ElectricMotorMC` | it splits that model's per-draw material masses into elements |
+| `05_PCBElementMC` | `04_PCBAreaMC` | it reads that model's histograms **and** its year scale factors |
+| `07_ElectricMotorElementMC` | `06_ElectricMotorMC` | it splits that model's per-draw material masses into elements |
 | `tools/mc_composition.py` | all four domain models | it pushes one simulated car through every one of them |
 | `tools/plot_composition.py` | `mc_composition` | the bands in the figures **are** the joint Monte Carlo |
 
@@ -148,8 +148,8 @@ That single cell controls the whole system. Put one of these in it:
 2. Type `Chinese_Convergence`. Save and close.
 3. Run:
    ```bash
-   .venv/bin/python ElectricMotorMC/ElectricMotorMC.py
-   .venv/bin/python ElectricMotorElementMC/ElectricMotorElementMC.py
+   .venv/bin/python 06_ElectricMotorMC/ElectricMotorMC.py
+   .venv/bin/python 07_ElectricMotorElementMC/ElectricMotorElementMC.py
    .venv/bin/python tools/build_composition.py
    ```
 4. Open `Data/30_BEV_electronics_composition.csv` and compare with your previous

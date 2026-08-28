@@ -12,19 +12,27 @@ __pycache__/
 *.csv
 *.png
 
-# Data/ used to be ignored wholesale (**/Data/). That also excluded the MODEL
-# INPUTS -- so a clone got the models but not 17_ or 18_, and BevWiring.py
-# could not run at all. Data/ is now tracked, but only for what the CODE READS.
+# NO DATA FILES IN GITHUB.               decided 2026-08-13
 #
-# Read by current scripts, therefore tracked:
-#   01_ 03_ 04_ 05_ 07_ 10_   (already were)
-#   06_  SensorNumbersMC.py
-#   17_  18_  19_             BevWiring.py
-#   make_19_adas_sensor_adoption.py   generates 19_
+# The whole Data/ tree is untracked -- inputs, deliverables and third-party
+# source material alike. Nothing under Data/ goes to the remote.
 #
-# Bulk third-party source material -- market reports, archives, scans, ~6.8 MB.
-# Not read by any script, some not ours to redistribute.
-Data/Sources/
+# READ THIS BEFORE CLONING. A fresh clone gets the CODE ONLY and cannot run:
+# every model reads its assumptions from Data/*.xlsx, so without that folder
+# BevWiring.py, SensorNumbersMC.py and the rest all fail at import. The Data/
+# tree has to be supplied separately -- from iCloud, a shared drive, or however
+# it is distributed.
+#
+# This has bitten before, which is why it is spelled out. Data/ was previously
+# ignored wholesale, that broke clones, and it was narrowed to track the inputs.
+# It is now deliberately ignored wholesale again -- the reason is distribution,
+# not size, and the trade-off is accepted knowingly.
+#
+# .gitignore DOES NOT UNTRACK WHAT GIT ALREADY TRACKS. Files committed before
+# this rule stay in the repository and in its history until removed with:
+#     git rm -r --cached Data
+# and note that removing them from the index does not remove them from history.
+Data/
 
 # Large generated outputs, wherever they land
 **/outputs/
@@ -42,18 +50,34 @@ Thumbs.db
 *.npy
 
 # Monte Carlo raw-draw sidecars: regenerable, written beside the .npy files.
-PCBAreaMC/raw_data/*.json
-ElectricMotorMC/samples_csv/*.json
-ElectricMotorMC/materials_samples_csv/*.json
+#
+# MATCHED BY FOLDER ROLE, NOT BY MODEL-FOLDER NAME. These used to read
+# "PCBAreaMC/raw_data/*.json" and so on, and silently stopped matching the day
+# the model folders were renumbered (2026-08-13). A rename must not be able to
+# break the ignore rules -- same rule as everywhere else: a change of naming or
+# composition should not change the structure.
+**/raw_data/*.json
+**/samples_csv/*.json
+**/materials_samples_csv/*.json
 
-# The combined composition file is a DELIVERABLE for the stock-and-flow model,
-# not a regenerable intermediate like the other CSVs. Track it.
-!Data/30_BEV_electronics_composition.csv
+# The combined composition file used to be force-tracked here as a DELIVERABLE.
+# It is not tracked any more: it lives under Data/, and no data file goes to
+# GitHub (see the Data/ rule above). It is handed to the stock-and-flow model
+# directly, not through the repository.
+#
+# A negation would not work anyway. Git cannot re-include a file once its parent
+# directory is excluded, so "!Data/30_..." under "Data/" is silently inert --
+# a trap worth knowing about rather than rediscovering.
 
 # Monte Carlo bulk tables are pandas pickles where they used to be CSV. Same rule
 # as *.csv and *.npy above: regenerable by re-running the model, large, not source.
-# PCBElementMC/data_results alone is 1.7 GB.
+# 05_PCBElementMC/data_results alone is 1.7 GB.
 *.pkl
+
+# Per-draw arrays for the stock-and-flow model. Covered by *.npy above; named
+# here so it is obvious they are deliberately untracked and regenerable by
+# re-running tools/mc_composition.py. ~600 MB.
+Composition/draws/
 
 # Element-name sidecars written beside the .npy fraction/mass arrays. Regenerable
 # with them, and meaningless without them, so they follow the same rule.

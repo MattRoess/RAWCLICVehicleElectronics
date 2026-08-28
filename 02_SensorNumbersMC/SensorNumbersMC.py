@@ -905,7 +905,7 @@ if _RUN:
     print("\n  V12 -- shared 800V penetration curve")
     try:
         import sys as _sys
-        _sys.path.insert(0, str(BASE_DIR / "Wiring"))
+        _sys.path.insert(0, str(BASE_DIR / "01_Wiring"))
         import BevWiring as _bw                              # noqa: E402
         _wire = _bw.load_inputs(YEARS)
         worst_v12 = max(float(np.abs(_wire.volt[s] - SHARE_800V[s]).max())

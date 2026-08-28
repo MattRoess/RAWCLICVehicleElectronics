@@ -90,7 +90,7 @@ def add(year, seg, domain, element, grams, basis, ctype="", hist="",
 # ---------------------------------------------------------------- 1. WIRING
 def wiring():
     """Copper in the low-voltage and high-voltage harness. Year-resolved."""
-    f = ROOT / "Wiring" / "outputs" / "data" / "bev_wiring_stats.csv"
+    f = ROOT / "01_Wiring" / "outputs" / "data" / "bev_wiring_stats.csv"
     if not f.exists():
         print(f"  SKIP wiring -- {f} not found (run Wiring/BevWiring.py)")
         return
@@ -121,7 +121,7 @@ def pcb():
     # The DETAILED file, not the totals -- totals discard Category and Size.
     # BINARY, not CSV: PCBElementMC writes this as a pandas pickle so the frame
     # round-trips with its dtypes intact and without re-parsing 6 MB of text.
-    f = ROOT / "PCBElementMC" / "data_results" / "element_mass_by_year.pkl"
+    f = ROOT / "05_PCBElementMC" / "data_results" / "element_mass_by_year.pkl"
     if not f.exists():
         print(f"  SKIP PCB -- {f} not found (run PCBAreaMC then PCBElementMC)")
         return
@@ -135,6 +135,37 @@ def pcb():
     print(f"  PCB           {len(d):5d} rows")
 
 
+def _read_motor_elements():
+    """The motor elemental summary, read safely.
+
+    ElectricMotorElementMC writes the SAME combined summary into every stream
+    folder. Earlier code globbed them and took [0] -- whichever sorted first.
+    That is fine while every copy is current and silently wrong the moment one
+    is not: renaming a stream folder (NdFeB -> Ferrite, 2026-08-13) leaves the
+    old one behind holding superseded numbers, and alphabetical luck decides
+    whether it is read.
+
+    So: read them ALL and require they agree. A disagreement means a stale
+    folder is present, and the error names it instead of picking one.
+    """
+    files = sorted(ROOT.glob("07_ElectricMotorElementMC/*/summary_csv/elemental_summary.csv"))
+    if not files:
+        raise FileNotFoundError(
+            "no elemental_summary.csv -- run ElectricMotorElementMC.py")
+    frames = {f: pd.read_csv(f) for f in files}
+    ref_f, ref = next(iter(frames.items()))
+    for f, d in frames.items():
+        if d.shape != ref.shape or not d.equals(ref):
+            raise ValueError(
+                f"motor element summaries disagree -- one of these folders is "
+                f"stale and must be deleted:\n"
+                f"  {ref_f.parent.parent.name}: {ref.shape}\n"
+                f"  {f.parent.parent.name}: {d.shape}\n"
+                f"Re-run ElectricMotorElementMC.py, then remove any stream "
+                f"folder it no longer writes.")
+    return ref
+
+
 # ------------------------------------------------------- 3. MOTOR ELEMENTS
 def motors():
     """Motor element mass = static composition x year-resolved motor MASS.
@@ -144,7 +175,7 @@ def motors():
     product is exact rather than an approximation, because composition carries
     no year dimension -- the same argument that made P-f exact for PCB.
     """
-    yf = ROOT / "ElectricMotorMC" / "summary_csv" / "motor_counts_by_year.csv"
+    yf = ROOT / "06_ElectricMotorMC" / "summary_csv" / "motor_counts_by_year.csv"
     if not yf.exists():
         print(f"  SKIP motors -- {yf} not found (run ElectricMotorMC.py)")
         return
@@ -170,11 +201,13 @@ def motors():
     # ElectricMotorElementMC writes the SAME combined summary into every stream
     # folder ("Combined summary -> elemental_summary.csv in all summary_csv
     # folders"). Globbing all four counted every element 4x. Read ONE.
-    files = sorted(ROOT.glob("ElectricMotorElementMC/*/summary_csv/elemental_summary.csv"))
     tot: dict[str, dict[str, float]] = {s: {} for s in SEGMENTS}
-    found = bool(files)
+    try:
+        d = _read_motor_elements()
+        found = True
+    except FileNotFoundError:
+        found = False
     if found:
-        d = pd.read_csv(files[0])
         # TWO DEFECTS FIXED 2026-08-13. Before this the motor mass in Data/30_
         # was 1.57-1.79x ElectricMotorMC's own mass, which is impossible: the
         # elements decompose the motors, so the two must be equal.
@@ -199,7 +232,7 @@ def motors():
                 mtype = str(case).split("_", 1)[1]
                 tot[seg][(mtype, el)] = float(kg) * 1000.0                 # kg -> g
 
-        mat_f = ROOT / "ElectricMotorMC" / "materials_summary_csv" / "materials_mc_summary.csv"
+        mat_f = ROOT / "06_ElectricMotorMC" / "materials_summary_csv" / "materials_mc_summary.csv"
         if mat_f.exists():
             mat = pd.read_csv(mat_f)
             unresolved = mat[mat.Material.isin(["Aluminum", "Plastic"])
@@ -254,7 +287,7 @@ def sensors():
     changes is HOW MANY there are, and that is modelled. Mode is used here;
     the Min/Max band lives in the source models.
     """
-    cf = ROOT / "SensorNumbersMC" / "csv_monte_carlo" / "sensor_year_stats.csv"
+    cf = ROOT / "02_SensorNumbersMC" / "csv_monte_carlo" / "sensor_year_stats.csv"
     comp_f = ROOT / "Data" / "07_VehicleSensorComposition.xlsx"
     if not cf.exists() or not comp_f.exists():
         print(f"  SKIP sensors -- need {cf.name} and {comp_f.name}")

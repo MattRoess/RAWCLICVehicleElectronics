@@ -71,10 +71,10 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
-sys.path.insert(0, str(ROOT / "Wiring"))
-sys.path.insert(0, str(ROOT / "SensorNumbersMC"))
-sys.path.insert(0, str(ROOT / "PCBAreaMC"))
-sys.path.insert(0, str(ROOT / "ElectricMotorMC"))
+sys.path.insert(0, str(ROOT / "01_Wiring"))
+sys.path.insert(0, str(ROOT / "02_SensorNumbersMC"))
+sys.path.insert(0, str(ROOT / "04_PCBAreaMC"))
+sys.path.insert(0, str(ROOT / "06_ElectricMotorMC"))
 
 from accumulator import Accumulator, N_HIST_BINS          # noqa: E402
 from drivers import load_lidar_bands                      # noqa: E402
@@ -165,14 +165,45 @@ def pcb_g_per_cm2():
     that model rather than a fitted relationship. Taken at BASE_YEAR; the
     year-to-year drift is 0.08%.
     """
-    e = pd.read_pickle(ROOT / "PCBElementMC" / "data_results" / "element_mass_by_year.pkl")
+    e = pd.read_pickle(ROOT / "05_PCBElementMC" / "data_results" / "element_mass_by_year.pkl")
     tot = e.groupby(["Segment", "Year"])["Mean_g"].sum()
     out = {}
     for seg in SEGMENTS:
-        a = pd.read_csv(ROOT / "PCBAreaMC" / "csv_monte_carlo"
+        a = pd.read_csv(ROOT / "04_PCBAreaMC" / "csv_monte_carlo"
                         / f"pcb_year_resolved_{seg}.csv").set_index("Year")
         out[seg] = float(tot.loc[(seg, BASE_YEAR)] / a.loc[BASE_YEAR, "Mean"])
     return out
+
+
+def _read_motor_elements():
+    """The motor elemental summary, read safely.
+
+    ElectricMotorElementMC writes the SAME combined summary into every stream
+    folder. Earlier code globbed them and took [0] -- whichever sorted first.
+    That is fine while every copy is current and silently wrong the moment one
+    is not: renaming a stream folder (NdFeB -> Ferrite, 2026-08-13) leaves the
+    old one behind holding superseded numbers, and alphabetical luck decides
+    whether it is read.
+
+    So: read them ALL and require they agree. A disagreement means a stale
+    folder is present, and the error names it instead of picking one.
+    """
+    files = sorted(ROOT.glob("07_ElectricMotorElementMC/*/summary_csv/elemental_summary.csv"))
+    if not files:
+        raise FileNotFoundError(
+            "no elemental_summary.csv -- run ElectricMotorElementMC.py")
+    frames = {f: pd.read_csv(f) for f in files}
+    ref_f, ref = next(iter(frames.items()))
+    for f, d in frames.items():
+        if d.shape != ref.shape or not d.equals(ref):
+            raise ValueError(
+                f"motor element summaries disagree -- one of these folders is "
+                f"stale and must be deleted:\n"
+                f"  {ref_f.parent.parent.name}: {ref.shape}\n"
+                f"  {f.parent.parent.name}: {d.shape}\n"
+                f"Re-run ElectricMotorElementMC.py, then remove any stream "
+                f"folder it no longer writes.")
+    return ref
 
 
 def motor_2025():
@@ -219,7 +250,7 @@ def motor_2025():
     per_draw = {}
     for seg in SEGMENTS:
         acc = None
-        for p in sorted((ROOT / "ElectricMotorMC" / "samples_csv")
+        for p in sorted((ROOT / "06_ElectricMotorMC" / "samples_csv")
                         .glob(f"samples_{seg}_*.npy")):
             a = np.load(p, mmap_mode="r")[:, 2].astype(float)   # total_mass_kg
             acc = a.copy() if acc is None else acc + a
@@ -228,13 +259,10 @@ def motor_2025():
                 f"no motor samples for {seg} -- run ElectricMotorMC.py first")
         per_draw[seg] = acc
 
-    files = sorted(ROOT.glob("ElectricMotorElementMC/*/summary_csv/elemental_summary.csv"))
-    if not files:
-        raise FileNotFoundError("no elemental_summary.csv -- run ElectricMotorElementMC.py")
-    d = pd.read_csv(files[0])
+    d = _read_motor_elements()
     d = d[d["Element"].astype(str) != TOTALMASS_ROW]          # defect 1
 
-    mat = pd.read_csv(ROOT / "ElectricMotorMC" / "materials_summary_csv"
+    mat = pd.read_csv(ROOT / "06_ElectricMotorMC" / "materials_summary_csv"
                       / "materials_mc_summary.csv")
 
     g25 = {}
