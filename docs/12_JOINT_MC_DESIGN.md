@@ -337,7 +337,7 @@ been rebuilt.
 
 ---
 
-## 6. Motor elements — two more defects (item A2)
+## 6. Motor elements — two more defects
 
 Fixing §5 left the composition still 0.50% (CD) and 0.94% (EF) off. Chasing that
 residual found two further defects, both real maths errors.
@@ -412,7 +412,7 @@ of motor mass, going wrong by a third.
 
 ---
 
-## 7. Step 4 — the figures (item A1)
+## 7. Step 4 — the figures
 
 `tools/plot_composition.py` now reads `Composition/csv/joint_mc_stats.csv`.
 `_lognormal_from_band()`, `_model_totals()`, `mc_total()` and the 40,000-draw
@@ -472,7 +472,7 @@ file is missing rather than inventing a band.
 
 ---
 
-## 8. `_shift_shares` deduplicated (item A5)
+## 8. `_shift_shares` deduplicated
 
 `BevWiring.py` carried its own copy of `shift_shares` while the sensor and PCB
 models called `drivers.shift_shares`. Same maths, two implementations, free to
