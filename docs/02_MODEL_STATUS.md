@@ -176,6 +176,70 @@ Unify when convenient.
 
 ---
 
+### 4.x  A change of composition must not change the structure
+
+> **A change of composition must not change the structure or the run design.**
+
+Which material a part is made of is **data**. It belongs in
+`10_MaterialElementDefinitions.xlsx`, and changing it should require editing that
+workbook and nothing else — not renaming a folder, not adding a code branch, not
+altering the run order.
+
+**The magnet switch on 2026-08-13 broke that rule.** Changing the auxiliary-motor
+magnets from NdFeB to strontium ferrite — a pure composition change — required a
+new loader function, a new sampler function, a new mass-column entry, edits to
+two hardcoded `if stream == …` blocks, and a renamed output folder that orphaned
+the old one. None of that was inherent to the change; all of it came from
+`07_ElectricMotorElementMC` hardcoding one branch per material.
+
+### Fixed — the stream table
+
+`07_ElectricMotorElementMC/ElectricMotorElementMC.py` now holds one `Stream`
+entry per material, and everything that differs lives in it as data:
+
+```python
+"magnet": Stream(
+    key="magnet", label="Strontium Ferrite", folder=MAGNET_ROOT,
+    sheet=FERRITE_SHEET, mass_col="mass_kg__NdFeB",
+    grades=list(FERRITE_GRADES), order=FERRITE_ELEMENTS,
+    balance="Fe", balance_tol=FERRITE_FE_TOL,
+    weights=lambda seg, motor: FERRITE_GRADES,
+    hist_globs=["hist_materialmass_*_NdFeB.csv", …],
+),
+```
+
+Four loader functions collapsed into `load_grades(xlsx, spec)`. Four sampler
+functions collapsed into `sample_composition(spec, …)`. Two hardcoded config
+blocks became a table lookup. `main()` became a loop over `STREAMS`.
+
+**To change or add a material now:**
+
+1. put its grades in `Data/10_MaterialElementDefinitions.xlsx`
+2. add or edit its `Stream` entry
+3. re-run
+
+**Verified byte-identical.** All 540 rows and 6 numeric columns of
+`elemental_summary.csv` match the pre-refactor output exactly — max absolute
+difference **0.000e+00**. The generic loop draws grade-by-grade,
+element-by-element in the declared order, so it consumes the random stream in
+exactly the sequence the four hand-written samplers did. The structure changed
+and nothing else.
+
+Two things the table also made explicit rather than incidental:
+
+- **The balance element is now a declared property** (`balance="Fe"`), not three
+  near-identical hand-written blocks. That is where the NdFeB normalisation bug
+  survived unnoticed — its sampler was the one that forgot to do it.
+- **A stream's key names its role, its label names its chemistry.** The folder is
+  `MagnetElemental` whatever magnet is modelled; `label="Strontium Ferrite"`
+  carries the chemistry into the `Stream` column of the data, which is where
+  content belongs.
+
+---
+
+
+---
+
 ## 5. Validation inventory
 
 | model | checks | status |

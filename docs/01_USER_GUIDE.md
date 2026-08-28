@@ -45,6 +45,56 @@ That creates a self-contained environment in `.venv`. You only do this once.
 
 ## 3. The fastest possible run
 
+**The folders are numbered in run order.** `01_`–`07_` are the models; the tree
+itself tells you the sequence.
+
+```
+   Data/*.xlsx  (the assumptions — you edit these)
+        │
+        ▼
+   ┌─ classify ──────────────────────────────────────────────────┐
+   │  BEVElectronicsClassification.py        (repo root)          │
+   │     01_ ──► 11_PCB_Distribution_Classified.csv               │
+   │             12_Motor_Distribution.csv                        │
+   └──────────────────────────────────────────────────────────────┘
+        │
+        ▼
+   ┌─ the four domains — independent of each other ──────────────┐
+   │                                                              │
+   │  WIRING   01_Wiring/BevWiring.py                             │
+   │                                                              │
+   │  SENSORS  02_SensorNumbersMC/    ──► counts                  │
+   │           03_SensorElementsMC/   ──► composition             │
+   │                                                              │
+   │  PCB      04_PCBAreaMC/          ──► area       ─┐ order      │
+   │           05_PCBElementMC/       ──► elements   ─┘ matters   │
+   │                                                              │
+   │  MOTORS   06_ElectricMotorMC/    ──► mass       ─┐ order      │
+   │           07_ElectricMotorElementMC/ ──► elements┘ matters   │
+   └──────────────────────────────────────────────────────────────┘
+        │
+        ▼
+   ┌─ combine ───────────────────────────────────────────────────┐
+   │  tools/build_composition.py  ──► Data/30_…composition.csv    │  the MEANS
+   │  tools/mc_composition.py     ──► joint_mc_stats.csv          │  the BAND
+   │                              ──► Composition/draws/*.npy     │  the DRAWS
+   └──────────────────────────────────────────────────────────────┘
+        │
+        ▼
+   ┌─ use it ────────────────────────────────────────────────────┐
+   │  tools/plot_composition.py    the figures                    │
+   │  tools/driver_sensitivity.py  which assumptions matter       │
+   │  RAWCLICStockAndFlow          ◄── the actual consumer        │
+   └──────────────────────────────────────────────────────────────┘
+```
+
+**Why the folders are numbered and the files are not.** A Python file whose name
+starts with a digit cannot be imported — `import 01_BevWiring` is a syntax error
+— and `tools/mc_composition.py` imports four of these models as libraries.
+Folders carry no such restriction, because the code adds them to `sys.path` and
+imports the module inside by its own name. So numbering lives on the folders.
+
+
 To produce everything from scratch, run these **in this order** — order matters,
 because later models read what earlier ones write:
 
@@ -91,6 +141,23 @@ project plots the combined picture; each model only draws its own domain.
 
 `tools/plot_composition.py` will **stop with a clear message** if
 `mc_composition` has not run, rather than drawing a band it cannot justify.
+
+### The one rule that matters when you consume these
+
+**Means add. Percentiles do not.**
+
+`30_` carries `P2_5_g` and `P97_5_g` per row. **Never sum them.** Summing
+percentiles assumes every component sits at its low, or its high, at the same
+moment. Measured at CD 2040: that gives 47.8 kg against a true band of 35.9 kg —
+**33% too wide**.
+
+- means → sum freely, they are exact
+- band at the vehicle level → read `joint_mc_stats.csv`
+- band at any other aggregation → multiply the **draws**, never the percentiles
+
+And `30_` is **per vehicle**. Across a fleet the average is far more certain than
+any single car, so per-vehicle uncertainty does not scale up unchanged.
+
 
 ### Optional, and worth running once
 
