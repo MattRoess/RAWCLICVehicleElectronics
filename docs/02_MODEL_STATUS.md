@@ -67,6 +67,67 @@ sensors are ~0.0% of total variance, so it vanishes in the total. Use this table
 for "what should I worry about when quoting the total per vehicle", never as
 "this driver does not matter".
 
+### 2.4 The four domains are drawn as independent. They are not.
+
+**Measured, CD 2040, from the 200,000 joint draws:**
+
+| | mean | CV | band |
+|---|---|---|---|
+| Wiring | 36.58 kg | **0.228** | 85.3% |
+| Motors | 30.96 kg | 0.137 | 53.3% |
+| **Total** | 68.33 kg | **0.137** | **52.5%** |
+
+`corr(Wiring, Motors) = **-0.0009**`
+
+**The total is less variable, in relative terms, than its largest component.**
+That is the square-root averaging you get from adding independent variables. It
+is arithmetically correct and physically wrong: both wiring and motors scale with
+how big the car is. The segment ladder shows the mechanism plainly — AB→EF,
+wiring ×2.43 and motors ×4.45 — and the same thing operates *within* a segment,
+with less range.
+
+**The zero correlation was never a decision.** Each model draws its own vehicles,
+which is right when a model runs alone and wrong the moment the outputs are
+added. Only the wiring model carries a per-vehicle size factor at all
+(`CV_VEHICLE = 0.10`).
+
+**Consequence: the total band is too narrow, and the error is one-directional.**
+Independence always understates the band when the true correlation is positive.
+Measured effect of imposing a shared size factor on wiring and motors:
+
+| | total band |
+|---|---|
+| today (independent) | **52.5%** |
+| shared size factor, CV 0.05 | 56.0% |
+| shared size factor, CV 0.10 | **65.8%** |
+| shared size factor, CV 0.15 | 79.2% |
+
+For scale: the entire ADAS hardware-tier driver is worth 0.4 points (§2.0). This
+is the largest single effect not in the model.
+
+### Why it is NOT built — and this is the right call
+
+**No BEV-specific work has been done on motor weight or composition.** The motor
+mass basis is `05_`, which is not BEV-derived, and the elemental composition was
+only corrected on 2026-08-28. Calibrating a size elasticity on top of motor
+numbers that are not themselves settled would put a second assumption on an
+unsettled first one, and the result would look more precise than either.
+
+The elasticities *would* come from the segment ladder — relative to wiring's
+0.10: motors 0.18, sensors 0.075, PCB 0.060 — which is at least derived from the
+project's own data rather than invented. But between-segment elasticity is only a
+proxy for within-segment, and it multiplies the motor uncertainty rather than
+resolving it.
+
+**Revisit when the motor work is done.** Two things to get right then: move
+wiring's existing `CV_VEHICLE` into the shared state rather than stacking a
+second factor on top of it, and give each domain its own elasticity instead of
+copying one number four times.
+
+**Until then, quote the total band knowing it is a floor, not an estimate.**
+
+---
+
 ### 2.1 The PCB numbers are bounded by an 8.2% driver
 
 PCB area 2025 → 2070: **AB +0.4%, CD −1.1%, EF −2.0%.**
@@ -294,14 +355,14 @@ nobody has. They are listed so a reader can see exactly what is being assumed.
 
 | | assumption | can it move the total? |
 |---|---|---|
-| **B1** | **Lidar on 80% of top-tier cars.** `LIDAR_H4_FLOOR = 0.80` says a car built to the highest hardware tier carries lidar 80% of the time, whatever the fleet-wide lidar share is doing. For EF this puts modelled lidar roughly 6× above what is observed on the road today. **Near term corroborated 2026-08-13:** a market report to 2033 implies 6.6–11× unit growth against the model's 7.5×, and premium concentration matching the model's EF ≈ 2× AB at 2030. It **stops in 2033 and says nothing about 2070**, where the model converges EF÷AB to 1.17× on the assumption that regulation, cost and accident reduction democratise lidar. That remains an assumption (`05_` §5.3a) | **No.** Lidar contributes ~0.0 points of the total band (§2.0), and lidar element mass is 0.03–0.18 g against a 36–131 kg total — 0.0001%. It matters for the lidar *count*, which is what a sensor study would quote, and for nothing else |
-| **B2** | **Post-2040 sensor content multipliers of 1.0 / 1.4 / 2.0.** Three futures for how much sensor content a car carries after 2040. The numbers are judgement; no source | **Barely.** 1.2–2.3 points of a 41–57% band |
-| **B3** | **What a sensor and a motor are MADE OF is frozen at 2025.** How many there are is modelled and moves with time; the material split inside each unit does not. Deliberate — composition is not forecastable | **Not directly**, but it is *why* sensors carry ~0% of the variance. Unfreezing it is the one change that would make several other items matter |
-| **B4** | **No shared vehicle-size factor.** Only the wiring model knows that a bigger car needs more of everything (`CV_VEHICLE = 0.10`). The other three have no size factor, so a big car is not consistently big across domains | **Probably yes** — it would act on wiring and motors, which are ~all of the variance. The one open item that could still widen the total. Not built: it changes three models' distributions and the size elasticity differs sharply by domain (AB→EF: motors ×4.45, wiring ×2.43, PCB ×1.46), so a single copied number would be wrong |
-| ~~**B5**~~ | ~~The `01_` relabelling was not propagated~~ **CLOSED 2026-08-13 — it already had been.** Verified by regenerating rather than by reading timestamps: `11_` and `12_` rebuild from `01_` **byte-identically**, and `SensorElementsMC` re-runs to **0 difference across all 27 elements × 3 segments**. The whole chain was current; the warning had outlived the problem | n/a |
+| **Lidar floor** | **Lidar on 80% of top-tier cars.** `LIDAR_H4_FLOOR = 0.80` says a car built to the highest hardware tier carries lidar 80% of the time, whatever the fleet-wide lidar share is doing. For EF this puts modelled lidar roughly 6× above what is observed on the road today. **Near term corroborated 2026-08-13:** a market report to 2033 implies 6.6–11× unit growth against the model's 7.5×, and premium concentration matching the model's EF ≈ 2× AB at 2030. It **stops in 2033 and says nothing about 2070**, where the model converges EF÷AB to 1.17× on the assumption that regulation, cost and accident reduction democratise lidar. That remains an assumption (`05_` §5.3a) | **No.** Lidar contributes ~0.0 points of the total band (§2.0), and lidar element mass is 0.03–0.18 g against a 36–131 kg total — 0.0001%. It matters for the lidar *count*, which is what a sensor study would quote, and for nothing else |
+| **Post-2040 multipliers** | **Post-2040 sensor content multipliers of 1.0 / 1.4 / 2.0.** Three futures for how much sensor content a car carries after 2040. The numbers are judgement; no source | **Barely.** 1.2–2.3 points of a 41–57% band |
+| **Composition frozen at 2025** | **What a sensor and a motor are MADE OF is frozen at 2025.** How many there are is modelled and moves with time; the material split inside each unit does not. Deliberate — composition is not forecastable | **Not directly**, but it is *why* sensors carry ~0% of the variance. Unfreezing it is the one change that would make several other items matter |
+| **Vehicle-size correlation** | **The four domains are drawn independently, so a car that is big in its wiring is not big in its motors.** Measured on the real 200,000 draws at CD 2040: `corr(Wiring, Motors) = -0.0009` — not a finding, an artefact of two models drawing with nothing connecting them. See §2.4 | **Yes — the largest remaining effect.** Total band 52.5% today; a shared size factor at CV 0.10 gives 65.8%, +25% wider. **Deliberately not built** — see §2.4 |
+| ~~**`01_` relabel**~~ | ~~The `01_` relabelling was not propagated~~ **CLOSED 2026-08-13 — it already had been.** Verified by regenerating rather than by reading timestamps: `11_` and `12_` rebuild from `01_` **byte-identically**, and `SensorElementsMC` re-runs to **0 difference across all 27 elements × 3 segments**. The whole chain was current; the warning had outlived the problem | n/a |
 
-**B1–B4 are judgements, not tasks.** They cannot be "fixed" — only stated, and
-now also quantified. B5 was the one task and it turned out to be already done.
+**These are judgements, not tasks.** They cannot be "fixed" — only stated, and
+now also quantified. The `01_` relabel was the one task, and it turned out to be already done.
 
 **A note on stale warnings.** B5 sat on the open list for six days because a
 handover recorded "these models have not been re-run". They had been. A warning
