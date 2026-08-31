@@ -172,11 +172,31 @@ NDFEB_FE_TOL = 0.02
 # it is not used. Strontium ferrite dominates automotive production.
 #
 # WHAT DID NOT CHANGE. The magnet MASS. It comes from 05_ as a fraction of motor
-# mass and is unchanged, so this is a composition switch, not a mass switch. Note
-# that ferrite is far less energy-dense than NdFeB and a ferrite motor needs more
-# magnet for the same torque -- if 05_'s mass fractions were measured on NdFeB
-# motors they would now be low. The notes naming ferrite first suggest they were
-# not, but that is worth revisiting if a source appears.
+# mass and is unchanged, so this is a composition switch, not a mass switch.
+#
+# KNOWN BIAS, MEASURED AGAINST THE SOURCE 2026-08-31, LEFT IN DELIBERATELY.
+# Ferrite is roughly an order of magnitude less energy-dense than sintered NdFeB,
+# so a ferrite motor needs MORE magnet for the same torque. Whether 05_'s mass
+# fractions already reflect that depends on which magnet they were measured on,
+# and its `notes` column answers that differently for the two motor families:
+#
+#   MediumDCMotors_plastic  "Strontium/barium ferrite, Sintered NdFeB (N-series)"
+#   MediumDCMotors_metal     same -- FERRITE IS NAMED FIRST
+#       -> plausibly ferrite-based already. No bias expected. These are the
+#          window lifters, wipers and blowers, i.e. most of the auxiliary mass.
+#
+#   SmallStepperMotors      "Sintered NdFeB (N42, N48SH, N45UH) & retentive Steel"
+#   MediumStepperMotors     "High-coercivity sintered NdFeB (N42EH, ...)"
+#       -> NdFeB ONLY, no ferrite mentioned. Their fractions (0.05/0.075/0.10 and
+#          0.10/0.125/0.15) were measured on NdFeB magnets, and this model splits
+#          that mass as ferrite. THE STEPPER MAGNET MASS IS THEREFORE LOW.
+#
+# The direction is known, the size is not. Correcting it needs a source for
+# ferrite magnet mass in small auxiliary steppers; picking a multiplier from the
+# energy-density ratio would be inventing a number, since magnet mass in a real
+# motor does not scale with that ratio. Decided with the user 2026-08-31: leave
+# the values, record the bias. Note also that the stepper magnet row is "NdFeB &
+# retentive Steel", so it is not purely magnet material to begin with.
 #
 # LABEL STILL SAYS NdFeB UPSTREAM. 05_'s `material` column, and therefore every
 # ElectricMotorMC output column and histogram filename, still calls this stream
