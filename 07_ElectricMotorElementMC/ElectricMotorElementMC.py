@@ -120,11 +120,34 @@ HIST_BINS = 100
 CU_GRADES  = ["ETP", "OF", "OFE"]
 CU_WEIGHTS = {g: 1 / 3 for g in CU_GRADES}
 
+# The copper sheet states these impurities in ppm, so these are the SHEET's column
+# names -- `load_grades` divides them by 1e6 on read and what comes out is an
+# ordinary mass fraction like every other element.
+#
+# THE SUFFIX MUST NOT SURVIVE INTO THE ELEMENT NAME. It says how the sheet writes
+# the number, not what the element is: `S_ppm` is sulfur. It used to be carried
+# through as the element name, and the effect was silent -- the combined motor
+# table accumulates streams BY ELEMENT NAME, so the electrical steel's `S` and the
+# copper's `S_ppm` never collided and never merged. Sulfur was reported as two
+# elements, neither of them its mass, and the same for O, Fe, Mn, P, Ag, Pb, Sn,
+# Zn, Ni and As. Bi, Cd, Sb, Se and Te occur only here and were reported under a
+# name that reads as a unit.
+#
+# So the element name is derived once, here, and the accumulator does the rest --
+# exactly as it already does for the iron shared by four streams.
 PPM_COLS = [
     "O_ppm", "Ag_ppm", "Pb_ppm", "Bi_ppm", "Fe_ppm",
     "Sb_ppm", "As_ppm", "Sn_ppm", "Zn_ppm", "Ni_ppm",
     "S_ppm",  "P_ppm",  "Se_ppm", "Te_ppm", "Cd_ppm", "Mn_ppm",
 ]
+
+# sheet column -> element. Cu is in RATIO_COLS and needs no mapping.
+PPM_ELEMENT = {c: c[: -len("_ppm")] for c in PPM_COLS}
+
+# The elements the copper stream resolves, in output order: copper, then its
+# impurities under their own names.
+CU_ELEMENTS = ["Cu", *(PPM_ELEMENT[c] for c in PPM_COLS)]
+
 RATIO_COLS   = ["Cu"]
 COPPER_COLOR = "#B87333"
 
@@ -743,7 +766,7 @@ STREAMS: Dict[str, Stream] = {
     "copper": Stream(
         key="copper", label="Copper", folder=CU_ROOT, color=COPPER_COLOR,
         sheet="Copper", mass_col="mass_kg__Copper",
-        grades=CU_GRADES, order=RATIO_COLS + PPM_COLS,
+        grades=CU_GRADES, order=CU_ELEMENTS,
         ratio_cols=RATIO_COLS, ppm_cols=PPM_COLS,
         balance=None,
         weights=lambda seg, motor: CU_WEIGHTS,
@@ -824,7 +847,9 @@ def load_grades(xlsx: Path, spec: Stream) -> Dict[str, Dict[str, Tuple[float, fl
         for col in spec.ratio_cols:
             elems[col] = (float(lo[col]), float(hi[col]))
         for col in spec.ppm_cols:
-            elems[col] = (float(lo[col]) / 1e6, float(hi[col]) / 1e6)
+            # read by the sheet's column name, store under the ELEMENT's name
+            elems[PPM_ELEMENT.get(col, col)] = (
+                float(lo[col]) / 1e6, float(hi[col]) / 1e6)
         out[grade] = elems
     return out
 
@@ -1052,6 +1077,21 @@ def process_grand_totals(
     # Row i is THE SAME SIMULATED MOTOR in both models -- this model reads
     # ElectricMotorMC's draws directly (see load_material_draws) rather than
     # resampling them -- so this division is exact per draw, not an assumed pairing.
+    # AN ELEMENT IS IDENTIFIED BY THE MATERIAL IT SITS IN, NOT BY ITS SYMBOL ALONE.
+    #
+    # `S__esteel` and `S__copper` are both sulfur and they are NOT the same
+    # quantity: one is an alloying addition in the electrical steel, the other an
+    # impurity in the copper winding. They are different materials in different
+    # parts of the motor, they behave differently in recycling, and adding them
+    # would produce a number that describes nothing. Same for the iron in four
+    # streams. So the name carries the stream, and nothing merges across materials.
+    #
+    # COPPER IS THE ONE EXCEPTION, by decision. It is the element this whole chain
+    # exists to quantify and it is wanted as ONE total for the motor -- the winding
+    # plus whatever copper appears as a trace elsewhere -- so it accumulates under
+    # a plain `Cu` across every stream.
+    CROSS_MATERIAL = {"Cu"}
+
     _by_seg: Dict[str, Dict[str, np.ndarray]] = {}
     _res_by_seg: Dict[str, np.ndarray] = {}
     for (seg, stream), data in mc_accum.items():
@@ -1059,7 +1099,8 @@ def process_grand_totals(
         tm = np.asarray(data["total_mass"], dtype=float)
         acc = _by_seg.setdefault(seg, {})
         for j, el in enumerate(data["elements"]):
-            acc[el] = acc.get(el, 0.0) + em[:, j]
+            key = el if el in CROSS_MATERIAL else f"{el}__{stream}"
+            acc[key] = acc.get(key, 0.0) + em[:, j]
         _res_by_seg[seg] = _res_by_seg.get(seg, 0.0) + tm
 
     ELEM_DRAWS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1071,9 +1112,17 @@ def process_grand_totals(
         tot_full, al_bulk, plastic = motor_mass_and_unresolved(seg, n_draws)
 
         acc = dict(acc)
-        acc["Al"] = acc.get("Al", 0.0) + al_bulk      # bulk aluminium IS the element
+        # Bulk aluminium is its own material -- ElectricMotorMC's `Aluminum` stream,
+        # the housing and frame -- so it is named for that material like every other
+        # entry, NOT folded into the aluminium that sits inside the electrical steel
+        # or the magnet.
+        acc["Al__bulk"] = acc.get("Al__bulk", 0.0) + al_bulk
         acc["Plastic"] = plastic                      # NOT an element; kept visible
-        els = [e for e in (*els, "Al", "Plastic") if e in acc]
+        # "Al__bulk", not "Al": the two unresolved materials are appended by name,
+        # and bulk aluminium now carries its material like every other entry. Naming
+        # the wrong key here does not raise -- the column is simply left out and the
+        # motor comes up short. The partition check below is what catches it.
+        els = [e for e in (*els, "Al__bulk", "Plastic") if e in acc]
         els = list(dict.fromkeys(els))
         els = [e for e in els if np.any(np.asarray(acc[e]) != 0)]
 
@@ -1124,10 +1173,19 @@ def process_grand_totals(
         print(f"      combined draws -> element_draws/motors_{seg}_fractions.npy "
               f"{frac.shape}  sum(frac) mean={_s.mean():.8f} "
               f"[{_s.min():.8f}-{_s.max():.8f}]")
+        # A READ-OUT, not a computation. Column names now carry their material, so
+        # an element is a GROUP of columns -- aluminium is Al__bulk plus the Al in
+        # the electrical steel. Summing them here is a display total for a human
+        # reading the log; nothing downstream uses it. Looking a bare name up with
+        # .index() is what broke when the names gained their material.
+        def _el_frac(sym: str) -> float:
+            cols = [i for i, e in enumerate(els) if e == sym or e.startswith(f"{sym}__")]
+            return float(frac[:, cols].sum(axis=1).mean()) if cols else float("nan")
+
         print(f"        motor mass {tot_full.mean():7.3f} kg   "
-              f"Cu {frac[:, els.index('Cu')].mean():.5f}   "
-              f"Al {frac[:, els.index('Al')].mean():.5f}   "
-              f"Plastic {frac[:, els.index('Plastic')].mean():.5f}   "
+              f"Cu {_el_frac('Cu'):.5f}   "
+              f"Al {_el_frac('Al'):.5f}   "
+              f"Plastic {_el_frac('Plastic'):.5f}   "
               f"Unspecified {rel.mean():.2e} (max {rel.max():.2e})")
 
     for (seg, stream), data in mc_accum.items():
