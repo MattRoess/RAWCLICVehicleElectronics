@@ -743,18 +743,24 @@ STREAMS: Dict[str, Stream] = {
     # THE MAGNET STREAM. Strontium ferrite since 2026-08-13; it was NdFeB
     # before. Changing it back, or to anything else, is this entry plus a sheet
     # in 10_ -- see the note above FERRITE_ELEMENTS for why ferrite is right for
-    # auxiliary motors. The mass column is still called NdFeB because 05_'s
-    # `material` column says so; that is a label upstream, not a composition.
+    # auxiliary motors. The mass column is `mass_kg__Magnet`, named for the PART:
+    # ElectricMotorMC keys this row on 05_'s `component` column, so the column
+    # name no longer moves when the magnet material does.
     "magnet": Stream(
         key="magnet", label="Strontium Ferrite", folder=MAGNET_ROOT,
         color=FERRITE_COLOR,
-        sheet=FERRITE_SHEET, mass_col="mass_kg__NdFeB",
+        sheet=FERRITE_SHEET, mass_col="mass_kg__Magnet",
         grades=list(FERRITE_GRADES), order=FERRITE_ELEMENTS,
         ratio_cols=FERRITE_ELEMENTS, ppm_cols=[],
         balance="Fe", balance_tol=FERRITE_FE_TOL,
         weights=lambda seg, motor: FERRITE_GRADES,
-        hist_globs=["hist_materialmass_*_NdFeB.csv",
-                    "hist_materialmass_*_ndfeb.csv"],
+        # `_Magnet` ONLY. ElectricMotorMC names this file from the component now,
+        # so the old `_NdFeB` spelling can only come from a stale histogram set --
+        # and matching both is not a harmless fallback: these files are iterated
+        # and accumulated into mc_accum per (segment, stream), so an old set beside
+        # a new one adds the magnet to the grand totals TWICE. Delete stale files
+        # rather than widening this glob.
+        hist_globs=["hist_materialmass_*_Magnet.csv"],
     ),
     "cfsteel": Stream(
         key="cfsteel", label="Cast Fe Steel", folder=CFSTEEL_ROOT,

@@ -520,12 +520,34 @@ def get_mass_params(df_mass: pd.DataFrame, motor_type: str, gearbox_type: str = 
 # ────
 # MATERIAL RATIO SAMPLING  — triangular distribution
 # ────
+# Components whose IDENTITY is the part, not the material in it.
+#
+# The magnet is the one row of the composition sheet whose material is a design
+# CHOICE rather than a definition. It was NdFeB, it is strontium ferrite, it could
+# be something else again -- and every time it changed, the export column name,
+# every histogram filename and the element model's `mass_col` had to change with
+# it. That is backwards: a motor has a magnet whatever the magnet is made of.
+#
+# So for these components the exported name comes from the sheet's `component`
+# column and the `material` column becomes what it should always have been -- an
+# attribute of the part, free to change without touching a line of code.
+#
+# Every other row keeps its material name, deliberately. For copper windings or a
+# plastic gear the material IS the identity, and two mechanisms below rely on it:
+# `split_housing_in_materials` splits the row whose material is Aluminum_Steel,
+# and `aggregate_duplicate_materials` merges rows that share a material.
+COMPONENT_KEYED = {"magnet"}
+
+
 def sample_material_ratios(
     comp_df: pd.DataFrame,
     rng: np.random.Generator,
     n: int,
 ) -> Tuple[List[str], np.ndarray]:
-    materials = comp_df["material"].tolist()
+    materials = [
+        str(comp).strip() if str(comp).strip().lower() in COMPONENT_KEYED else mat
+        for comp, mat in zip(comp_df["component"], comp_df["material"])
+    ]
     lo   = comp_df["low"].to_numpy(float)
     mode = comp_df["mode"].to_numpy(float)
     hi   = comp_df["high"].to_numpy(float)
