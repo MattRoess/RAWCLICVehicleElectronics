@@ -141,20 +141,45 @@ DRAWS_OUT = ROOT / "Composition" / "draws"
 def sensor_mg_per_type():
     """{sensor type (lowercased): mg of material in one sensor of that type}.
 
-    Summed over every element 07_ reports. Mode is used; the Min/Max band lives
-    in the source model. Types with no 07_ row return nothing and are skipped by
-    the caller -- silently dropping them would understate sensor mass, so the
-    caller reports the count.
+    Summed over every element 07_ reports, each element taken as the MEAN of its
+    triangular (min, mode, max), which is (min + mode + max) / 3.
+
+    IT USED TO BE THE MODE, AND THAT IS THE WRONG ESTIMATOR FOR A MASS BALANCE.
+    Expected total mass is E[sum x] = sum E[x], and the mean of a triangular is
+    not its mode. 07_'s composition rows are strongly right-skewed -- summed over
+    every element and type the max is 286,736 mg against a mode of 79,022 -- so
+    summing modes understated expected sensor mass by a measured 1.62x. Sensors
+    were the only domain estimated this way: motors read ElectricMotorMC's own
+    per-draw samples, PCB uses Mean_g, wiring reports copper directly.
+
+    The bias was invisible to any amount of Monte Carlo, because it is in the
+    ESTIMATOR, not in the sampling: every draw of a mode-based mass is a draw of
+    the wrong number. It was found by comparing this series against
+    SensorElementsMC's totals, which are mean-based, and it accounts for the mass
+    half of the 1.73x gap between them. The remaining 1.07x is a COUNT convention
+    -- this file uses SensorNumbersMC's per-draw counts, SensorElementsMC uses a
+    uniform mean -- and per-draw counts are the better of the two, so that half is
+    deliberately not "fixed" here.
+
+    Types with no 07_ row return nothing and are skipped by the caller -- silently
+    dropping them would understate sensor mass, so the caller reports the count.
     """
     import re
     f = ROOT / "Data" / "07_VehicleSensorComposition.xlsx"
     comp = pd.read_excel(f, sheet_name="Sensor Details")
     els = sorted({m.group(1) for c in comp.columns
                   if (m := re.match(r"^([A-Z][a-z]?)_mode_mg$", str(c)))})
+
+    def _mean_mg(row, el: str) -> float:
+        lo   = float(row.get(f"{el}_min_mg", 0) or 0)
+        mode = float(row.get(f"{el}_mode_mg", 0) or 0)
+        hi   = float(row.get(f"{el}_max_mg", 0) or 0)
+        return (lo + mode + hi) / 3.0
+
     out = {}
     for _, r in comp.iterrows():
         key = str(r["SensorType"]).strip().lower()
-        out[key] = float(sum(float(r.get(f"{e}_mode_mg", 0) or 0) for e in els))
+        out[key] = float(sum(_mean_mg(r, e) for e in els))
     return out
 
 
