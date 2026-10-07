@@ -1,5 +1,7 @@
 """ONE simulated vehicle, shared by every model — the per-draw random state.
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 WHY THIS EXISTS. Each model draws its own vehicles. That is correct when a model
 runs alone, and wrong the moment their outputs are added together, because the
 four domains are not independent: a car that is zonal, 800 V and carrying H4

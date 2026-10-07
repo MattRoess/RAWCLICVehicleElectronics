@@ -2,6 +2,8 @@
 Monte Carlo Simulation for BEV Sensor Counts by Segment
 Pure NumPy/Pandas implementation (mirrors the structure of PCBAreaMC.py)
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 Inputs:
 - Data/BEV_Electronics_Verified.xlsx  (all tabs; Domain/Component status per segment: Std/Opt/Rare/-)
 - Data/BEV_Sensor_Types_List-3.xlsx   (first tab "Sensor Counts Detail" only; Domain/Component/SensorType

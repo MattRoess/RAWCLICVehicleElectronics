@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """The JOINT Monte Carlo — one simulated car through all four domains.
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
     python3 tools/mc_composition.py [n_iter]
 
 Writes  Composition/draws/<seg>_<series>.npy     raw per-draw arrays (n_iter x years)

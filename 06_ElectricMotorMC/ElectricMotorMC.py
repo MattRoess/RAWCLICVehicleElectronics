@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright notice: Copyright © 2025 & 2026 Empa, Matthias Roesslein
 from __future__ import annotations
 
 import sys

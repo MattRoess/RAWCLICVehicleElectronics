@@ -1,6 +1,8 @@
 """
 Electric Motor Data Consolidation Script
 Consolidates material mass statistics from a single summary CSV into Excel template
+
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
 """
 
 import pandas as pd

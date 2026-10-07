@@ -2,6 +2,8 @@
 Monte Carlo Simulation for BEV Sensor Elemental Composition by Segment
 Pure NumPy/Pandas implementation (mirrors the structure of PCBAreaMC.py / BEVSensorCountMC.py)
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 Two-stage model, combined per Monte Carlo draw:
   Stage 1 (sensor COUNT):  exactly reproduces BEVSensorCountMC.py -- for every
       (Domain, Component, SensorType) row, the rectangular [min,max] sensor-count

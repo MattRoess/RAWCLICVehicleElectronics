@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build ONE material-composition file for the stock-and-flow model.
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 Every model in this suite reports its own slice: wiring copper, PCB elements,
 sensor elements, motor elements. A stock-and-flow model needs them in a single
 table -- material mass per vehicle, per segment, per year -- the same shape as a

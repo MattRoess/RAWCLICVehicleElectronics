@@ -1,5 +1,7 @@
 """Shared driver curves — ONE implementation, read by every model.
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 WHY THIS EXISTS. Before 2026-08-10 the same curve reader lived twice, in
 Wiring/BevWiring.py and SensorNumbersMC/SensorNumbersMC.py. They were logically
 identical but separately maintained, and step 7 was about to add a THIRD copy in

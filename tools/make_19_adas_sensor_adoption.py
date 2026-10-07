@@ -1,5 +1,7 @@
 """Generate Data/19_ADAS_sensor_adoption.xlsx from the report.
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 Source of every number: docs/05_ADAS_SENSOR_ADOPTION_REPORT.md
 Section references in the sheets point back to it. Regenerate with:
 

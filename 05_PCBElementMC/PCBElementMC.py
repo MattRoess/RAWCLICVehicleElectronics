@@ -2,6 +2,8 @@
 PCB Element Composition Monte Carlo Simulation - COMPLETE VERSION (FIXED)
 ================================================================================
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 This script performs comprehensive Monte Carlo simulation for element composition in PCBs.
 FIXED: Correctly parses histogram filenames with multi-word category names (e.g., PE_HVS).
 UPDATED: All mass outputs now in grams (g) instead of milligrams (mg).

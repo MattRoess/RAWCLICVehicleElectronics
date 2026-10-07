@@ -1,5 +1,7 @@
 """Streaming statistics for Monte Carlo draws — ONE implementation.
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 WHY THIS EXISTS. The point of the accumulator is that **memory stops depending
 on the number of draws**. Instead of holding every draw, each chunk is folded
 into a fixed-bin histogram plus a few running sums, so 200,000 draws and

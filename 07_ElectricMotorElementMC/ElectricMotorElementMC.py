@@ -5,6 +5,8 @@ ElectricMotorElementMC.py
 Monte Carlo elemental analysis for four material streams produced by
 ElectricMotorMC.py:
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
   1. COPPER          — grades ETP, OF, OFE (equal weight 1/3, all segments)
   2. ELECTRICAL STEEL — grades M19, M27, M36, M43, M47
        Fe is "balance" → Fe = 1 − Σ(Si + C + Mn + Al + P + S)

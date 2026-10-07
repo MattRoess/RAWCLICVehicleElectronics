@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Which drivers actually carry the uncertainty, and which are swallowed by it?
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
     python3 tools/driver_sensitivity.py [n_iter]
 
 WHY THIS EXISTS. A model can accumulate drivers indefinitely. Each one feels like

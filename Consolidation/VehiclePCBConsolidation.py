@@ -1,6 +1,8 @@
 """
 PCB Data Consolidation Script
 Consolidates PCB area statistics from segment CSV files into Excel template
+
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
 """
 
 import pandas as pd

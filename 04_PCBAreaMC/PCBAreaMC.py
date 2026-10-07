@@ -6,6 +6,8 @@ UPDATED: Uses segment-specific data (AB, CD, EF) directly
 ADDED: Category (PCB_Category) breakdown by segment (6 categories x 3 segments)
 UPDATED: Robust path handling for neighbor folders
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 Inputs:
 - 11_PCB_Distribution_Classifie.csv
 - 03_VehiclePCBSize.xlsx

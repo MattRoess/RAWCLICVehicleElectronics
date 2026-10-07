@@ -5,6 +5,8 @@ This is the current model. Earlier generations (v3, v4) were deleted on
 2026-08-05; MODEL_HISTORY.md records why each was replaced, and they are
 recoverable from git history up to commit 554633e.
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 WHY THIS MODEL LOOKS THE WAY IT DOES
 (the three defects of the previous generation that shaped it)
 --------------------------------------------------------------------------------

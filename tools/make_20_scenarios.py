@@ -1,5 +1,7 @@
 """Generate Data/20_scenarios.xlsx -- the PROJECT-WIDE scenario selection.
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
 One file, read by every model, so that choosing a scenario once applies it
 everywhere. Previously this lived in 19_ sheet Scenarios, which is
 ADAS-specific and the wrong home for a project-wide switch.

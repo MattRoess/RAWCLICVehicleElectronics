@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Figures for the OVERALL vehicle electronics -- with the Monte Carlo ranges.
 
+**Copyright notice:** Copyright © 2025 & 2026 Empa, Matthias Roesslein
+
     python3 tools/mc_composition.py      # must run FIRST -- supplies the band
     python3 tools/plot_composition.py
 
